@@ -2,48 +2,48 @@
 *This file tracks current workflow phases for multiple projects/features, ties in workflow rules, and logs recent events.*
 ---
 ## Global Constants
-BreakpointSizes: [320, 768, 1024]  # Canonical breakpoint definitions used across all rules
-AutoFixLineThreshold: 5            # Maximum lines that can be auto-fixed
-ChunkSizeLimit: 100                # Maximum lines per code chunk
-PerformanceBudgets:                # Performance thresholds that must be met
-  FCP: 1500                        # First Contentful Paint in ms
-  TTI: 3500                        # Time to Interactive in ms
-  LCP: 2500                        # Largest Contentful Paint in ms
-ChunkExemptions:                   # Modules exempt from strict chunk limits
+breakpointSizes: [320, 768, 1024]  # Canonical breakpoint definitions used across all rules
+autoFixLineThreshold: 5            # Maximum lines that can be auto-fixed
+chunkSizeLimit: 100                # Maximum lines per code chunk
+performanceBudgets:                # Performance thresholds that must be met
+  fcp: 1500                        # First Contentful Paint in ms
+  tti: 3500                        # Time to Interactive in ms
+  lcp: 2500                        # Largest Contentful Paint in ms
+chunkExemptions:                   # Modules exempt from strict chunk limits
   - "types.ts"                     # Type definitions
   - "constants.ts"                 # Constants
   - "utils/*.ts"                   # Utility functions
 ---
 ## Projects
-ActiveProjectID: project-001    # Currently active project
-Projects:
+activeProjectId: project-001    # Currently active project
+projects:
   - id: project-001
     name: "Initial Project"
     state:
-      Phase: ANALYZE                   # Current workflow phase
-      Status: READY                    # Current status
-      CurrentTaskID: null              # No active task yet
-      PlanRef: project-001/plan.md     # Project plan reference
-      RetryCount: 0                    # Project retry counter
-      Blockers: []                     # Active blockers
-      LastTransitionLogID: 2           # Log entry ID of last phase transition
-      ModelPerspective: Default        # Current perspective
-      PerspectiveHistory: []           # History of perspective changes
-      LastSyncTime: null               # Last state sync timestamp
+      phase: ANALYZE                   # Current workflow phase
+      status: READY                    # Current status
+      currentTaskId: null              # No active task yet
+      planRef: project-001/plan.md     # Project plan reference
+      retryCount: 0                    # Project retry counter
+      blockers: []                     # Active blockers
+      lastTransitionLogId: 2           # Log entry ID of last phase transition
+      modelPerspective: default        # Current perspective
+      perspectiveHistory: []           # History of perspective changes
+      lastSyncTime: null               # Last state sync timestamp
     metrics:
-      PhaseCounts:
-        ANALYZE: 0
-        BLUEPRINT: 0
-        CONSTRUCT: 0
-        VALIDATE: 0
-      ProgressSteps:
+      phaseCounts:
+        analyze: 0
+        blueprint: 0
+        construct: 0
+        validate: 0
+      progressSteps:
         completed: 0
         total: 0
         percentage: 0
-      LastProgressCheckLogID: null
-      ComponentsComplete: 0
-      ComponentsTotal: 0
-      ErrorCounts:
+      lastProgressCheckLogId: null
+      componentsComplete: 0
+      componentsTotal: 0
+      errorCounts:
         lint: 0
         test: 0
         responsive: 0
@@ -53,30 +53,30 @@ Projects:
         seo: 0
         accessibility: 0
         performance: 0
-      AutoFixAttempts: 0
-      AutoFixSuccesses: 0
-      ResponsiveFixAttempts: 0
-      ResponsiveFixSuccesses: 0
-      AutoFixSuccessRate: null
-      ResponsiveChecks:
+      autoFixAttempts: 0
+      autoFixSuccesses: 0
+      responsiveFixAttempts: 0
+      responsiveFixSuccesses: 0
+      autoFixSuccessRate: null
+      responsiveChecks:
         "320": { passed: null, severity1Count: 0, severity2Count: 0, severity3Count: 0 }
         "768": { passed: null, severity1Count: 0, severity2Count: 0, severity3Count: 0 }
         "1024": { passed: null, severity1Count: 0, severity2Count: 0, severity3Count: 0 }
-      MobileFirstChecks:
+      mobileFirstChecks:
         breakpointCommentExists: false
         correctBreakpointOrder: false
         mediaQueriesUseMinWidth: false
-      ChunkBoundaryChecks:
+      chunkBoundaryChecks:
         oversizedModulesWithoutChunks: []
         invalidChunkFormats: []
-      PerformanceMetrics:
-        FCP: null
-        TTI: null
-        LCP: null
-      SEOChecks:
+      performanceMetrics:
+        fcp: null
+        tti: null
+        lcp: null
+      seoChecks:
         metaTags: { required: ["title", "description"], found: [] }
         structuredData: { required: true, found: false }
-      AccessibilityChecks:
+      accessibilityChecks:
         missingAltText: []
         missingAriaLabels: []
         contrastIssues: []
@@ -94,7 +94,7 @@ Projects:
       # Status computed automatically from checklist state
     componentRegistry:
       path: project-001/component-registry.md
-      lastUpdateLogID: null
+      lastUpdateLogId: null
       dependencyGraphStatus: null
       namespacePrefix: "p001_"  # Project namespace for components
       components: {}
@@ -103,15 +103,15 @@ Projects:
       vendorAbstractionStatus: {}  # Track which vendor components have proper wrappers
 ---
 ## Global Metrics
-TotalProjects: 1
-ActiveProjects: 1
-CompletedProjects: 0
-ProjectPhases:
-  ANALYZE: 1
-  BLUEPRINT: 0
-  CONSTRUCT: 0
-  VALIDATE: 0
-  COMPLETED: 0
+totalProjects: 1
+activeProjects: 1
+completedProjects: 0
+projectPhases:
+  analyze: 1
+  blueprint: 0
+  construct: 0
+  validate: 0
+  completed: 0
 ---
 ## Rules
 *Structured constraints enforced by the agent.*
@@ -120,8 +120,8 @@ ProjectPhases:
 - id: WF1
   description: "TRANSITION_BY_COMMAND - Phase transitions triggered by explicit commands"
   severity: error
-  action: "Reset ModelPerspective to Default on transitions to ANALYZE or BLUEPRINT"
-  prerequisite: "ActiveProjectID must be loaded and in sync (WF5)"
+  action: "Reset modelPerspective to default on transitions to ANALYZE or BLUEPRINT"
+  prerequisite: "activeProjectId must be loaded and in sync (WF5)"
 - id: WF2
   description: "TRANSITION_ON_BLOCKER - Revert to blueprint/analyze on blocking conditions"
   severity: error
@@ -162,24 +162,24 @@ ProjectPhases:
 - id: TI5
   description: "RULE_TOOL_RESPONSIVE_FIX - Attempt auto-fixes for responsive layout issues before blocking"
   severity: error
-  threshold: "${AutoFixLineThreshold} lines"
-  tracking: "Increments ResponsiveFixAttempts and ResponsiveFixSuccesses metrics"
+  threshold: "${autoFixLineThreshold} lines"
+  tracking: "Increments responsiveFixAttempts and responsiveFixSuccesses metrics"
   fixes: [
-    "Missing media query: Add '@media (min-width: ${BreakpointSizes[n]}px) { ... }'",
+    "Missing media query: Add '@media (min-width: ${breakpointSizes[n]}px) { ... }'",
     "Incorrect order: Reorder media queries from smallest to largest breakpoint",
     "Max-width usage: Replace '@media (max-width: Npx)' with '@media (min-width: (N+1)px)'",
-    "Missing breakpoint comment: Add '// BREAKPOINTS: ${BreakpointSizes.join(', ')}'",
+    "Missing breakpoint comment: Add '// BREAKPOINTS: ${breakpointSizes.join(', ')}'",
     "Nested media queries: Flatten and deduplicate"
   ]
 - id: TI6
   description: "RULE_TOOL_LIGHTHOUSE - Run performance, SEO, and accessibility checks"
   severity: error
   integration: "Uses Lighthouse or similar tool against staging deployment"
-  metrics: "Updates PerformanceMetrics, SEOChecks, and AccessibilityChecks"
+  metrics: "Updates performanceMetrics, seoChecks, and accessibilityChecks"
 
 ### Error Handling Rules
 - id: EH1
-  description: "AUTO_FIX_THRESHOLD - Only auto-fix issues affecting ≤${AutoFixLineThreshold} lines"
+  description: "AUTO_FIX_THRESHOLD - Only auto-fix issues affecting ≤${autoFixLineThreshold} lines"
   severity: warning
   integration: "Must be invoked before WF2 (TRANSITION_ON_BLOCKER) can be triggered"
 - id: EH2
@@ -191,16 +191,16 @@ ProjectPhases:
 - id: EH4
   description: "PERSPECTIVE_SHIFTS - Rotate approaches on persistent errors"
   severity: warning
-  reset: "ModelPerspective resets to Default on any transition to ANALYZE or BLUEPRINT"
+  reset: "modelPerspective resets to default on any transition to ANALYZE or BLUEPRINT"
 
 ### Quality Validation Rules
 - id: QV1
   description: "VERIFICATION_CHECKS - Run lint, tests, and responsive checks"
   severity: error
 - id: QV2
-  description: "RESPONSIVE_BLOCKER - Handle responsive design failures, increment ErrorCounts.responsive, attempt auto-fix when below threshold"
+  description: "RESPONSIVE_BLOCKER - Handle responsive design failures, increment errorCounts.responsive, attempt auto-fix when below threshold"
   severity: error
-  checkpoints: "${BreakpointSizes}"  # Reference to canonical breakpoint definitions
+  checkpoints: "${breakpointSizes}"  # Reference to canonical breakpoint definitions
   blockingCriteria: "Any Severity 3 (Critical) failures block transition to VALIDATE phase"
   autofixRule: "Uses TI5 (RULE_TOOL_RESPONSIVE_FIX) for automated corrections"
 - id: QV3
@@ -215,9 +215,9 @@ ProjectPhases:
   description: "PERFORMANCE_BUDGET - Enforce performance thresholds for production builds"
   severity: error
   thresholds: {
-    "FCP": "${PerformanceBudgets.FCP}ms", 
-    "TTI": "${PerformanceBudgets.TTI}ms", 
-    "LCP": "${PerformanceBudgets.LCP}ms"
+    "fcp": "${performanceBudgets.fcp}ms", 
+    "tti": "${performanceBudgets.tti}ms", 
+    "lcp": "${performanceBudgets.lcp}ms"
   }
   tool: "TI6 (RULE_TOOL_LIGHTHOUSE)"
   blockingCriteria: "Any performance metric exceeding threshold blocks VALIDATE→COMPLETE transition"
@@ -235,6 +235,11 @@ ProjectPhases:
     "Landmark roles must be properly used"
   ]
   blockingSeverity: "Severity 2-3 issues block VALIDATE→COMPLETE transition"
+- id: QV6
+  description: "COMPONENT_COMPLETION_CHECK - Verify all components are implemented before validation"
+  severity: error
+  check: "componentsComplete must equal componentsTotal"
+  blockingCriteria: "Blocks CONSTRUCT→VALIDATE transition until all components are implemented"
 
 ### Code Quality Rules
 - id: CQ1
@@ -244,34 +249,34 @@ ProjectPhases:
   description: "Task complexity ratings determine minimum number of subtasks"
   severity: warning
 - id: CQ3
-  description: "Limit code generation to chunks of ${ChunkSizeLimit} lines or fewer; larger modules must use explicit chunk boundaries"
+  description: "Limit code generation to chunks of ${chunkSizeLimit} lines or fewer; larger modules must use explicit chunk boundaries"
   severity: error
   format: "// CHUNK: <name> format enforced via regex /^\/\/ CHUNK: [A-Za-z0-9 ]+$/"
-  enforcement: "Any module exceeding ${ChunkSizeLimit} lines without proper CHUNK markers triggers a blocker"
-  exemptions: "Files matching ${ChunkExemptions.join(', ')} can exceed chunk limit without markers"
+  enforcement: "Any module exceeding ${chunkSizeLimit} lines without proper CHUNK markers triggers a blocker"
+  exemptions: "Files matching ${chunkExemptions.join(', ')} can exceed chunk limit without markers"
   blueprintValidation: "Required in blueprint phase via blueprintValidation.chunkBoundariesDefined"
 - id: CQ4
   description: "Enforce mobile-first designs and responsive breakpoints"
   severity: error
-  breakpoints: "${BreakpointSizes}"  # Reference to canonical breakpoint definitions
+  breakpoints: "${breakpointSizes}"  # Reference to canonical breakpoint definitions
   requirement: "Every component must include or reference responsive breakpoint definitions"
 - id: CQ5
   description: "MOBILE_FIRST_COMMENT - Every component file must include breakpoint definition comment"
   severity: error
-  format: "// BREAKPOINTS: ${BreakpointSizes.join(', ')}"
-  check: "Increments ErrorCounts.mobileFirst if missing"
+  format: "// BREAKPOINTS: ${breakpointSizes.join(', ')}"
+  check: "Increments errorCounts.mobileFirst if missing"
   blueprintValidation: "Required in blueprint phase via blueprintValidation.breakpointsDefined"
 - id: CQ6
   description: "CHUNK_BOUNDARY_REQUIREMENT - Large modules must use proper chunk boundary markers"
   severity: error
   format: "// CHUNK: <name>"
   validation: "regex /^\/\/ CHUNK: [A-Za-z0-9 ]+$/"
-  check: "Increments ErrorCounts.chunkBoundary if missing or malformed"
+  check: "Increments errorCounts.chunkBoundary if missing or malformed"
 - id: CQ7
   description: "MOBILE_FIRST_MEDIA_QUERIES - Media queries must use min-width in ascending order"
   severity: error
-  pattern: "@media (min-width: ${BreakpointSizes[0]}px) {...} followed by larger breakpoints"
-  check: "Increments ErrorCounts.mobileFirst if using max-width or incorrect order"
+  pattern: "@media (min-width: ${breakpointSizes[0]}px) {...} followed by larger breakpoints"
+  check: "Increments errorCounts.mobileFirst if using max-width or incorrect order"
 
 ### Component Registry Rules
 - id: CR1
@@ -291,12 +296,17 @@ ProjectPhases:
   severity: error
   targets: ["@radix-ui", "@headlessui", "react-aria"]
   verification: "Direct imports of these packages are only allowed in /components/vendor/ directory"
-  check: "Increments ErrorCounts.vendorImport for violations"
+  check: "Increments errorCounts.vendorImport for violations"
   action: "When wrapper is created, update vendorAbstractionStatus[packageName] = 'wrapped'"
+- id: VA2
+  description: "VENDOR_WRAPPER_CREATION - Track creation of vendor component wrappers"
+  severity: warning
+  action: "When wrapper is created, updates vendorAbstractionStatus[packageName] = 'wrapped'"
+  check: "Verifies all vendor components have wrappers before VALIDATE→COMPLETE transition"
 ---
 ## Code Generation Guidelines
 *Reference for code generation - all requirements formalized as rules in Code Quality Rules section*
-- Standard modules: Generate in chunks of ${ChunkSizeLimit} lines or fewer (CQ3, CQ6)
+- Standard modules: Generate in chunks of ${chunkSizeLimit} lines or fewer (CQ3, CQ6)
 - Complex modules (State Manager, Phase Controller):
   - Use explicit chunk boundaries per CQ6 rule
   - Maintain comprehensive comments between chunks per CQ1
@@ -315,7 +325,7 @@ ProjectPhases:
 ## Phase Transition Guards
 *Rules that must be satisfied before phase transitions are allowed*
 - ALL TRANSITIONS: 
-  - ActiveProjectID must be loaded and in sync (WF5)
+  - activeProjectId must be loaded and in sync (WF5)
 
 - ANALYZE→BLUEPRINT: No additional guards
 
@@ -326,8 +336,8 @@ ProjectPhases:
   - Breakpoints must be defined (blueprintValidation.breakpointsDefined)
 
 - CONSTRUCT→VALIDATE: 
-  - All components must be implemented
-  - All responsive checks must be executed at breakpoints ${BreakpointSizes.join(', ')}
+  - All components must be implemented (componentsComplete must equal componentsTotal)
+  - All responsive checks must be executed at breakpoints ${breakpointSizes.join(', ')}
   - No Severity 3 (Critical) responsive failures may exist
   - Mobile-first requirements (CQ4, CQ5, CQ7) must be satisfied for all components
   - All components must have valid breakpoint comments (CQ5)
@@ -339,8 +349,8 @@ ProjectPhases:
 - VALIDATE→COMPLETE: 
   - All verification checks must pass
   - All vendor components must have proper abstractions registered
-  - ErrorCounts for mobileFirst, chunkBoundary, and vendorImport must be zero
-  - Performance metrics must be within budget (QV4)
+  - errorCounts for mobileFirst, chunkBoundary, and vendorImport must be zero
+  - performanceMetrics must be within budget (QV4)
   - No Severity 2-3 SEO or accessibility issues (QV5)
 ---
 ## Project Transition History
@@ -352,3 +362,4 @@ ProjectPhases:
 [0001] [INIT] New workflow session started.
 [0002] [PROJECT] Created project-001 "Initial Project".
 [0003] [PHASE] project-001 phase set to ANALYZE.
+[0004] [STATE] Updated codebase state with consistent casing and fixed metric tracking.
