@@ -1,0 +1,191 @@
+**# --- Core Workflow Rules ---**
+
+RULE_WF_PHASE_ANALYZE:
+  **Constraint:** Goal is understanding request/context. NO solutioning or implementation planning.
+
+RULE_WF_PHASE_BLUEPRINT:
+  **Constraint:** Goal is creating a detailed, unambiguous step-by-step plan. NO code implementation.
+
+RULE_WF_PHASE_CONSTRUCT:
+  **Constraint:** Goal is executing the `## Plan` exactly. NO deviation. If issues arise, trigger error handling or revert phase.
+
+RULE_WF_PHASE_VALIDATE:
+  **Constraint:** Goal is verifying implementation against `## Plan` and requirements using tools. NO new implementation.
+
+RULE_WF_TRANSITION_01:
+  **Trigger:** Explicit user command (`@analyze`, `@blueprint`, `@construct`, `@validate`).
+  **Action:** Update `State.Phase` accordingly. Log phase change.
+
+RULE_WF_TRANSITION_02:
+  **Trigger:** AI determines current phase constraint prevents fulfilling user request OR error handling dictates phase change (e.g., RULE_ERR_HANDLE_TEST_01).
+  **Action:** Log the reason. Update `State.Phase` (e.g., to `BLUEPRINT_REVISE`). Set `State.Status` appropriately (e.g., `NEEDS_PLAN_APPROVAL`). Report to user.
+
+**# --- Initialization & Resumption Rules ---**
+
+RULE_INIT_01:
+  **Trigger:** AI session/task starts AND `codebase_state.md` is missing or empty.
+  **Action:**
+    1. Create `codebase_state.md` with default structure.
+    2. Read `readme.md` (prompt user if missing).
+    3. Set `State.Phase = ANALYZE`, `State.Status = READY`.
+    4. Log "Initialized new session."
+    5. Prompt user for the first task.
+
+RULE_INIT_02:
+  **Trigger:** AI session/task starts AND `code_state.md` exists.
+  **Action:**
+    1. Read `readme.md`.
+    2. Read existing `codebase_state.md`.
+    3. Log "Resumed session."
+    4. Check `State.Status`: Handle READY, COMPLETED, BLOCKED_*, NEEDS_*, IN_PROGRESS appropriately (prompt user or report status).
+
+RULE_INIT_03:
+  **Trigger:** User confirms continuation via RULE_INIT_02 (for IN_PROGRESS state).
+  **Action:** Proceed with the next action based on loaded state and rules.
+
+**# --- Memory Management Rules ---**
+
+RULE_MEM_READ_LTM_01:
+  **Trigger:** Start of a new major task or phase.
+  **Action:** Read `README.me`. Log action.
+
+RULE_MEM_READ_STM_01:
+  **Trigger:** Before *every* decision/action cycle.
+  **Action:** Read `codebase_state.md`.
+
+RULE_MEM_UPDATE_STM_01:w
+  **Trigger:** After *every* significant action or information receipt.
+  **Action:** Immediately update relevant sections (`## State`, `## Plan`, `## Log`) in `codebase_state.md` and save.
+
+RULE_MEM_UPDATE_LTM_01:
+  **Trigger:** User command (`@config/update`) OR end of successful VALIDATE phase for significant change.
+  **Action:** Propose concise updates to `README.me` based on `## Log`/diffs. Set `State.Status = NEEDS_LTM_APPROVAL`. Await user confirmation.
+
+RULE_MEM_VALIDATE_01:
+  **Trigger:** After updating `codebase_state.md` or `README.me`.
+  **Action:** Perform internal consistency check. If issues found, log and set `State.Status = NEEDS_CLARIFICATION`.
+
+**# --- Tool Integration Rules (Cursor Environment) ---**
+
+RULE_TOOL_LINT_01:
+  **Trigger:** Relevant source file saved during CONSTRUCT phase.
+  **Action:** Instruct Cursor terminal to run lint command. Log attempt. On completion, parse output, log result, set `State.Status = BLOCKED_LINT` if errors.
+
+RULE_TOOL_FORMAT_01:
+  **Trigger:** Relevant source file saved during CONSTRUCT phase.
+  **Action:** Instruct Cursor to apply formatter or run format command via terminal. Log attempt.
+
+RULE_TOOL_TEST_RUN_01:
+  **Trigger:** Command `@validate` or entering VALIDATE phase.
+  **Action:** Instruct Cursor terminal to run test suite. Log attempt. On completion, parse output, log result, set `State.Status = BLOCKED_TEST` if failures, `TESTS_PASSED` if success.
+
+RULE_TOOL_APPLY_CODE_01:
+  **Trigger:** AI determines code change needed per `## Plan` during CONSTRUCT phase.
+  **Action:** Generate modification. Instruct Cursor to apply it. Log action.
+
+**# --- Error Handling & Recovery Rules ---**
+
+RULE_ERR_HANDLE_LINT_01:
+  **Trigger:** `State.Status` is `BLOCKED_LINT`.
+  **Action:** Analyze error in `## Log`. Attempt auto-fix if simple/confident. Apply fix via RULE_TOOL_APPLY_CODE_01. Re-run lint via RULE_TOOL_LINT_01. If success, reset `State.Status`. If fail/complex, set `State.Status = BLOCKED_LINT_UNRESOLVED`, report to user.
+
+RULE_ERR_HANDLE_TEST_01:
+  **Trigger:** `State.Status` is `BLOCKED_TEST`.
+  **Action:** Analyze failure in `## Log`. Attempt auto-fix if simple/localized/confident. Apply fix via RULE_TOOL_APPLY_CODE_01. Re-run failed test(s) or suite via RULE_TOOL_TEST_RUN_01. If success, reset `State.Status`. If fail/complex, set `State.Phase = BLUEPRINT_REVISE`, `State.Status = NEEDS_PLAN_APPROVAL`, propose revised `## Plan` based on failure analysis, report to user.
+
+RULE_ERR_HANDLE_GENERAL_01:
+  **Trigger:** Unexpected error or ambiguity.
+  **Action:** Log error/situation to `## Log`. Set `State.Status = BLOCKED_UNKNOWN`. Report to user, request instructions.
+
+**# --- Quality Validation Rules ---**
+
+RULE_QUALITY_CHECK_01:
+  **Trigger:** Completion of any migration plan step.
+  **Action:** Initiate corresponding quality validation phase, document results in log, ensure all validation criteria pass before marking step as complete.
+
+RULE_QUALITY_BLOCKER_01:
+  **Trigger:** Quality validation phase fails critical criteria.
+  **Action:** Set `State.Status = BLOCKED_QUALITY_CHECK`, document failed validation points, and prevent progression to next step until fixed.
+
+**# --- Code Annotation Rules ---**
+
+RULE_CODE_ANNOTATION_01:
+  **Trigger:** Creation or modification of any HTML or CSS file.
+  **Action:** Ensure comprehensive annotations are added explaining structure, purpose, and behavior of the code.
+
+RULE_CODE_ANNOTATION_02:
+  **Trigger:** Quality validation of any implementation step.
+  **Action:** Verify thorough annotations exist throughout all HTML and CSS code, flag as failing validation if annotations are insufficient.
+
+**# --- Task Complexity Rules ---**
+
+RULE_TASK_COMPLEXITY_01:
+  **Trigger:** Defining a new task or step.
+  **Action:** Assign a complexity rating (1-5) and ensure the task includes at least that many sub-tasks.
+
+RULE_TASK_COMPLEXITY_02:
+  **Trigger:** Quality validation of a task's implementation.
+  **Action:** Verify that implementation complexity matches the assigned rating and all sub-tasks are completed.
+
+**# --- Code Generation Rules ---**
+
+RULE_CODE_GEN_CHUNKING_01:
+  **Trigger:** Need to generate or modify a file with >100 lines.
+  **Action:** Break generation into multiple chunks of ≤100 lines each, completing one chunk before proceeding to the next.
+
+RULE_CODE_GEN_CHUNKING_02:
+  **Trigger:** Tool error during code generation due to token limits.
+  **Action:** Reduce chunk size by 50% and retry generation with smaller chunk.
+
+**# --- Error Retry Rules ---**
+
+RULE_ERR_RETRY_LIMIT_01:
+  **Trigger:** Any tool error occurs.
+  **Action:** Increment `State.RetryCount`, log error details, attempt alternative approach if `RetryCount < 3`.
+
+RULE_ERR_RETRY_LIMIT_02:
+  **Trigger:** `State.RetryCount` reaches or exceeds 3.
+  **Action:** Set `State.Status = BLOCKED_MAX_RETRIES`, document all attempts in log, request human assistance.
+
+RULE_ERR_RETRY_RESET_01:
+  **Trigger:** Successful operation after previous errors.
+  **Action:** Reset `State.RetryCount = 0` and log the success.
+
+**# --- Model Perspective Rules ---**
+
+RULE_MODEL_PERSPECTIVE_01:
+  **Trigger:** Persistent errors even after multiple retries.
+  **Action:** Before clearing context, change `State.ModelPerspective` to a different approach (technical, creative, pedagogical) and retry with new perspective.
+
+RULE_MODEL_PERSPECTIVE_02:
+  **Trigger:** Complex implementation challenge requiring different viewpoint.
+  **Action:** Temporarily change `State.ModelPerspective` to gain insights from alternate approach, then document insights before returning to standard perspective.
+
+**# --- Migration Index Rules ---**
+
+RULE_MIGRATION_INDEX_01:
+  **Trigger:** Completion of any implementation step or component.
+  **Action:** Update migration index.md with detailed documentation of the implemented component, including:
+    1. Component structure and purpose
+    2. Usage examples and variations
+    3. Relationships with other components
+    4. Implementation details and design decisions
+    5. Code snippets for reference
+
+RULE_MIGRATION_INDEX_02:
+  **Trigger:** Any significant change to existing components.
+  **Action:** Update the corresponding section in migration index.md, documenting the change, reason, and impact on related components.
+
+RULE_MIGRATION_INDEX_03:
+  **Trigger:** Beginning of a new project phase.
+  **Action:** Create a new section in migration index.md for components specific to that phase, with proper cross-referencing to related components.
+
+RULE_MIGRATION_INDEX_04:
+  **Trigger:** Quality validation phase.
+  **Action:** Verify migration index.md is accurate and comprehensive for all components implemented in the previous phase, with proper documentation and examples.
+
+RULE_MIGRATION_INDEX_05:
+  **Trigger:** Final validation before deployment.
+  **Action:** Ensure migration index.md serves as a complete reference guide for the entire project structure, with table of contents, component index, and comprehensive search-friendly documentation.
+
+---
