@@ -146,7 +146,7 @@ Set `State.Status=NEEDS_PLAN_APPROVAL` if incomplete.
 ## Code Annotation Rules
 
 **ANNOTATION_REQUIREMENT**  
-**Trigger:** Creation or modification of HTML, CSS, or JSX files.  
+**Trigger:** all source files (HTML, CSS, TS/JS, JSX) must include detailed explanatory comments. 
 **Action:** Ensure comprehensive annotations explaining structure, purpose, and behavior.
 
 **ANNOTATION_VALIDATION**  
