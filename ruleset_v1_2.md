@@ -208,7 +208,9 @@ Set `State.Status=NEEDS_PLAN_APPROVAL` if incomplete.
 3. If all perspectives have been attempted without resolution, set `State.Status=BLOCKED_PERSPECTIVE_EXHAUSTION`
 4. Log each perspective change with timestamp in `codebase_state.md`
 
-## Time Tracking & Metrics
+---
+
+## Component Registry & Documentation
 
 **PHASE_TIMING_AUDIT**  
 **Trigger:** Entry to or exit from any workflow phase.  
