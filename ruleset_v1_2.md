@@ -1,9 +1,3 @@
-# Cursor-Specific Development Workflow
-
-A disciplined, phase-driven framework for developing software in the Cursor environment.
-
----
-
 ## Core Workflow Phases
 
 **PHASE_ANALYZE**  
