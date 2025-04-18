@@ -1,5 +1,5 @@
-# Merged Universal Workflow Rules
-
+# initial cursor ruleset v.1 based on https://github.com/kleosr/cursorkleosr
+ 
 ---
 
 ## Core Workflow Rules
