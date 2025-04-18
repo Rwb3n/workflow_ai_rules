@@ -203,33 +203,36 @@ On completion, parse output, log result, set `State.Status = BLOCKED_TEST` if fa
 
 ---
 
-## Migration Index Rules
+## Component Registry and Documentation Rules
 
-**RULE_MIGRATION_INDEX_01:**  
+**RULE_COMP_DOC_01:**  
 **Trigger:** Completion of any implementation step or component.  
-**Action:** Update migration index.md with detailed documentation of the implemented component, including:
+**Action:** Update component-registry.md with detailed documentation of the implemented component, including:
   1. Component structure and purpose
   2. Usage examples and variations
   3. Relationships with other components
   4. Implementation details and design decisions
   5. Code snippets for reference
 
-**RULE_MIGRATION_INDEX_02:**  
+**RULE_COMP_DOC_02:**  
 **Trigger:** Any significant change to existing components.  
-**Action:** Update the corresponding section in migration index.md, documenting the change, reason, and impact on related components.
+**Action:** Update the corresponding section in component-registry.md, documenting the change, reason, and impact on related components.
 
-**RULE_MIGRATION_INDEX_03:**  
+**RULE_COMP_DOC_03:**  
 **Trigger:** Beginning of a new project phase.  
-**Action:** Create a new section in migration index.md for components specific to that phase, with proper cross-referencing to related components.
+**Action:** Create a new section in component-registry.md for components specific to that phase, with proper cross-referencing to related components.
 
-**RULE_MIGRATION_INDEX_04:**  
+**RULE_COMP_DOC_04:**  
 **Trigger:** Quality validation phase.  
-**Action:** Verify migration index.md is accurate and comprehensive for all components implemented in the previous phase, with proper documentation and examples.
+**Action:** Verify component-registry.md is accurate and comprehensive for all components implemented in the previous phase, with proper documentation and examples.
 
-**RULE_MIGRATION_INDEX_05:**  
+**RULE_COMP_DOC_05:**  
 **Trigger:** Final validation before deployment.  
-**Action:** Ensure migration index.md serves as a complete reference guide for the entire project structure, with table of contents, component index, and comprehensive search-friendly documentation.
+**Action:** Ensure component-registry.md serves as a complete reference guide for the entire project structure, with table of contents, component index, and comprehensive search-friendly documentation.
 
+---
+
+*Note: These rules replace the previous "Migration Index Rules" section with a more accurate name reflecting their purpose: documenting and cataloging components throughout the development lifecycle.*
 ---
 
 *All transitions, validations, and error handling now rely on explicit, measurable triggers. State reads are scoped to boundaries to optimize performance. 
