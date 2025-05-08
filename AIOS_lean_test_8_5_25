@@ -1,0 +1,142 @@
+1. OVERVIEW
+This document specifies AIOS-Lean_v0.1, a minimal, universal operational system for an AI agent. It prioritizes token efficiency and relies on the AI's intrinsic capabilities for detailed execution.
+Core Loop: ANALYZE -> PLAN -> EXECUTE -> REVIEW -> (Repeat or IDLE)
+2. DATA STORES (File System)
+state.json: Current operational state. JSON format. Overwritten.
+log.txt: Append-only, plain text log.
+registry.jsonl: Append-only, JSON Lines. Each line is an artifact record. Newest entry per ID is current.
+plans/: Directory. Contains [PlanID].json files.
+3. STATE (state.json Schema - Conceptual)
+{
+  "logSeq": 0,        // int: Log sequence number
+  "phase": "IDLE",    // string: ANALYZE, PLAN, EXECUTE, REVIEW, IDLE
+  "status": "READY",  // string: READY, BUSY, BLOCKED, ERROR
+  "currentPlanId": null, // string | null: ID of active plan
+  "currentTaskId": null,   // string | null: ID of active task from currentPlanId
+  "errorContext": null   // string | null: Brief error message/code
+}
+Use code with caution.
+Json
+4. CORE WORKFLOW PHASES & RULES
+4.1. RULE_INIT_RESUME (System Startup/Resumption)
+* Trigger: AI agent startup.
+* Action:
+1. State Load:
+* IF state.json exists: Load into memory.
+* ELSE: Create default in-memory state (logSeq=0, phase='IDLE', status='READY', others null).
+2. Directory/File Init (if state was new):
+* Create plans/ directory.
+* Create empty log.txt, registry.jsonl.
+3. Log Sync (if state loaded):
+* Read last line of log.txt. Try parse logSeq (e.g., from ^(\d+)\s).
+* IF parsed logSeqFromLog > state.logSeq: state.logSeq = logSeqFromLog.
+4. RULE_LOG("Session Start. Resumed=" + (stateWasLoaded), 'I').
+5. state.status = 'READY'.
+6. RULE_SAVE_STATE().
+4.2. RULE_LOG (Logging)
+* Input: message: string, level: char ('I'|'W'|'E'|'D')
+* Action:
+1. state.logSeq++.
+2. logLine = state.logSeq + " [" + level + "] " + state.phase + ":" + (state.currentPlanId || "-") + "." + (state.currentTaskId || "-") + ": " + message + "\n".
+3. Append logLine to log.txt.
+4. IF level == 'E':
+* state.errorContext = message.substring(0, 100) (truncate).
+* state.status = 'ERROR'.
+* RULE_SAVE_STATE(). // Save state immediately on error
+4.3. RULE_SAVE_STATE (State Persistence)
+* Trigger: Called by other rules after significant state changes.
+* Action:
+1. Serialize in-memory state object to JSON string.
+2. Write JSON string to state.json (overwrite).
+3. IF error writing: // AI must have a critical internal fallback for this (e.g., retry, panic log to console). Beyond AIOS spec.
+4.4. RULE_SET_PHASE (Phase Management)
+* Input: newPhase: string ('ANALYZE'|'PLAN'|'EXECUTE'|'REVIEW'|'IDLE')
+* Action:
+1. IF newPhase != state.phase:
+* RULE_LOG("Phase -> " + newPhase, 'I').
+* state.phase = newPhase.
+* state.status = 'READY'.
+* // state.currentTaskId = null // Reset task context when phase changes (except Review->Execute for rework)
+* IF newPhase != 'IDLE' && newPhase != 'REVIEW': state.currentTaskId = null.
+* RULE_SAVE_STATE().
+4.5. PHASE_ANALYZE (Goal Understanding)
+* Trigger: state.phase == 'ANALYZE', state.status == 'READY'.
+* Action:
+1. state.status = 'BUSY'. RULE_SAVE_STATE().
+2. RULE_LOG("Analyzing goal.", 'I').
+3. AI INTERNAL CAPABILITY: Understand input goal (from prompt, user, or prior state). Clarify if needed.
+4. Output of this phase is analyzedGoalData (internal AI representation).
+5. RULE_LOG("Analysis complete.", 'I').
+6. RULE_SET_PHASE('PLAN').
+* // Error during analysis: RULE_LOG(err, 'E'); RULE_HANDLE_ERROR().
+4.6. PHASE_PLAN (Plan Creation - RULE_CREATE_PLAN)
+* Trigger: state.phase == 'PLAN', state.status == 'READY'.
+* Input (from ANALYZE): analyzedGoalData.
+* Action:
+1. state.status = 'BUSY'. RULE_SAVE_STATE().
+2. RULE_LOG("Creating plan.", 'I').
+3. AI INTERNAL CAPABILITY: Generate a plan.
+* planId = "plan_" + state.logSeq (simple unique ID).
+* planData = { "id": planId, "goalDescription": /* from analyzedGoalData */, "tasks": [ { "id": "t1", "description": "...", "acceptanceCriteria": ["..."] }, ... ] }.
+* // Task IDs within a plan should be unique, e.g., planId + "_t1"
+4. Serialize planData to JSON.
+5. Write JSON to plans/ + planId + ".json".
+6. RULE_LOG("Plan " + planId + " created with " + planData.tasks.length + " tasks.", 'I').
+7. state.currentPlanId = planId.
+8. RULE_SET_PHASE('EXECUTE').
+* // Error during planning: RULE_LOG(err, 'E'); RULE_HANDLE_ERROR().
+4.7. PHASE_EXECUTE (Task Execution - RULE_EXECUTE_TASK)
+* Trigger: state.phase == 'EXECUTE', state.status == 'READY'.
+* Action:
+1. IF state.currentPlanId == null: RULE_LOG("No active plan.", 'W'); RULE_SET_PHASE('IDLE'); return.
+2. Load planData from plans/ + state.currentPlanId + ".json". IF error: RULE_LOG("Failed to load plan " + state.currentPlanId, 'E'); RULE_HANDLE_ERROR(); return.
+3. AI INTERNAL CAPABILITY: Identify nextTask from planData.tasks (e.g., first task not yet marked completed by AI's internal checklist/memory for this plan).
+4. IF no nextTask: RULE_COMPLETE_PLAN(); return.
+5. state.currentTaskId = nextTask.id.
+6. state.status = 'BUSY'. RULE_SAVE_STATE().
+7. RULE_LOG("Executing task " + state.currentTaskId + ": " + nextTask.description, 'I').
+8. AI INTERNAL CAPABILITY: Perform nextTask using its skills (text gen, code, design, delegation simulation).
+* // If task generates an artifact: output = { id: "art_" + state.logSeq, type: "...", locationOrContent: "..." }
+* // RULE_REGISTER_ARTIFACT(output.id, state.currentPlanId, state.currentTaskId, output.locationOrContent, output.type)
+9. RULE_LOG("Task " + state.currentTaskId + " execution attempt finished.", 'I').
+10. state.status = 'READY'. // Task itself isn't reset here yet
+11. RULE_SET_PHASE('REVIEW'). // Auto-transition to review the just-executed task
+* // Error during execution: RULE_LOG(err, 'E'); RULE_HANDLE_ERROR(). This might set status to ERROR, preventing phase transition.
+4.8. RULE_REGISTER_ARTIFACT (Artifact Registration)
+* Input: artifactId: string, planId: string, taskId: string, locationOrContent: string, type: string
+* Action:
+1. artifactRecord = { "id": artifactId, "planId": planId, "taskId": taskId, "loc": locationOrContent, "type": type, "logSeq": state.logSeq, "ts": /* current_timestamp_iso_lean */ }.
+2. Serialize artifactRecord to JSON string.
+3. Append JSON string + \n to registry.jsonl.
+4. RULE_LOG("Artifact " + artifactId + " registered.", 'I').
+4.9. PHASE_REVIEW (Task Review - RULE_REVIEW_TASK)
+* Trigger: state.phase == 'REVIEW', state.status == 'READY', state.currentTaskId != null.
+* Action:
+1. IF state.currentPlanId == null || state.currentTaskId == null: RULE_LOG("Review called without active plan/task.", 'W'); RULE_SET_PHASE('EXECUTE'); return.
+2. state.status = 'BUSY'. RULE_SAVE_STATE().
+3. Load planData from plans/ + state.currentPlanId + ".json". Get taskToReview matching state.currentTaskId. Get its acceptanceCriteria.
+4. RULE_LOG("Reviewing task " + state.currentTaskId + ".", 'I').
+5. AI INTERNAL CAPABILITY: Review output/result of taskToReview (using its memory of execution, or by examining registered artifacts for that task) against its acceptanceCriteria. reviewPassed = true/false.
+6. IF reviewPassed:
+* RULE_LOG("Task " + state.currentTaskId + " PASSED review.", 'I').
+* AI INTERNAL CAPABILITY: Mark state.currentTaskId as completed for state.currentPlanId.
+* state.currentTaskId = null. // Ready for next task in EXECUTE
+* RULE_SET_PHASE('EXECUTE').
+7. ELSE (reviewPassed == false):
+* RULE_LOG("Task " + state.currentTaskId + " FAILED review. Reason: " + /* AI provides brief reason */, 'W').
+* // Lean: Task remains state.currentTaskId. Re-entering EXECUTE will re-attempt it.
+* // AI may internally increment a retry counter for this task. If max retries for task:
+* // RULE_LOG("Task " + state.currentTaskId + " failed max review retries.", 'E'); RULE_HANDLE_ERROR(); return.
+* RULE_SET_PHASE('EXECUTE'). // To retry or handle failure of currentTaskId
+* // Error during review logic itself: RULE_LOG(err, 'E'); RULE_HANDLE_ERROR().
+4.10. RULE_COMPLETE_PLAN (Plan Completion)
+* Trigger: Called by RULE_EXECUTE_TASK when no pending tasks remain in the current plan.
+* Action:
+1. RULE_LOG("Plan " + state.currentPlanId + " COMPLETED successfully.", 'I').
+2. state.currentPlanId = null.
+3. state.currentTaskId = null.
+4. RULE_SET_PHASE('IDLE').
+4.11. RULE_HANDLE_ERROR (Error Handling)
+* Trigger: state.status == 'ERROR'. (Set by RULE_LOG if level 'E').
+* Action:
+1. RULE_
