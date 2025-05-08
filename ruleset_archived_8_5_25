@@ -1,0 +1,237 @@
+Preamble: This ruleset governs the AI agent's operation for any project medium, emphasizing disciplined phase transitions, robust state management, proactive quality control, and a comprehensive artifact registry with a codebase index. Log, state, and registry information are maintained in separate, dedicated files.
+
+Dedicated Files:
+
+codebase_state.md: Contains the current operational state of the AI, including phase, status, retry counts, and the global log entry counter.
+
+codebase_log.md: A chronological, append-only log of all significant AI actions and events.
+
+codebase_registry.md: Contains detailed information about all project artifacts/modules, their relationships, and an index mapping them to their locations in the codebase.
+
+State Variables (in codebase_state.md)
+
+State.LogEntryCounter: Integer, starts at 0, increments for each log entry. Persisted here.
+
+State.Phase: Current workflow phase.
+
+State.Status: Current operational status (e.g., READY, NEEDS_APPROVAL, BLOCKED_*, etc.).
+
+State.RetryCount: Integer for current retry attempts on a specific task.
+
+Other contextual state as needed.
+
+Core Workflow Phases
+
+(Phases: ANALYZE, BLUEPRINT, CONSTRUCT, VALIDATE remain the same as in the previous version, with the understanding that "blueprint" now more explicitly requires location planning for artifacts.)
+
+PHASE_BLUEPRINT (Clarification for Registry)
+Goal: Create an unambiguous, detailed blueprint. Must specify for each planned artifact/module:
+
+Purpose and scope
+
+Structure and organization
+
+Planned Location/Path (for the codebase_registry.md index)
+
+Interfaces (inputs, outputs)
+
+Dependencies (other artifacts/modules it relies on)
+
+Prerequisites (conditions or artifacts that must exist before it can be built)
+
+Acceptance criteria
+Constraint: No implementation until blueprint is approved.
+
+Transition Rules
+
+(TRANSITION_BY_COMMAND, TRANSITION_ON_BLOCKER remain largely the same, ensuring logging goes to codebase_log.md via RULE_LOG_EVENT.)
+
+Initialization & Resumption
+
+INIT_NEW_PROJECT
+Trigger: No prior codebase_state.md exists.
+Action:
+
+Initialize codebase_state.md with default headings and State.LogEntryCounter = 0.
+
+Create/Initialize empty codebase_log.md.
+
+Create/Initialize codebase_registry.md with top-level headings: "# Artifact Registry & Codebase Index", "## Codebase Index", "## Artifact Details".
+
+Call RULE_LOG_EVENT (which writes to codebase_log.md): "Initialized new session. Core files created. Prompting for requirements."
+
+Prompt for requirements documentation.
+
+Set State.Phase=ANALYZE, State.Status=READY (in codebase_state.md).
+
+Call RULE_LOG_EVENT: "State.Phase set to ANALYZE. State.Status set to READY."
+
+Persist codebase_state.md.
+
+RESUME_PROJECT
+Trigger: Existing codebase_state.md found.
+Action:
+
+Load codebase_state.md (including State.LogEntryCounter).
+
+(Assume codebase_log.md and codebase_registry.md exist and will be appended/updated as needed).
+
+Call RULE_LOG_EVENT: "Resumed session. Current Phase: <State.Phase>, Status: <State.Status>."
+
+Report current phase and status to user.
+
+Prompt for next action.
+
+State Management & Logging
+
+RULE_LOG_EVENT
+Action (Generic): For any significant event, state change, or action:
+
+Increment State.LogEntryCounter (in memory, to be persisted with codebase_state.md).
+
+Append to codebase_log.md: "[<State.LogEntryCounter>] <Descriptive message of event/change>"
+
+Persist codebase_state.md (to save the incremented State.LogEntryCounter and any other state changes). (This ensures the counter is always up-to-date even if logging is frequent).
+
+RULE_STATE_PERSISTENCE
+Trigger: After critical state changes in codebase_state.md (e.g., phase, status) or periodically during long operations.
+Action:
+
+Persist the current in-memory codebase_state.md to its file.
+
+Call RULE_LOG_EVENT: "Core AI state persisted to codebase_state.md." (Note: This log event itself will trigger another persistence of codebase_state.md due to LogEntryCounter increment, which is acceptable and ensures log/state consistency).
+
+Error Handling & Recovery
+
+(Error handling rules: AUTO_FIX_THRESHOLD, ESCALATION, UNKNOWN_FAIL, RETRY_RESET, ENVIRONMENT_TOOL_FEEDBACK_AWARENESS remain largely the same, ensuring all logging uses RULE_LOG_EVENT.)
+
+Quality Validation (Generalized)
+
+(VERIFICATION_CHECKS, QUALITY_FAILURE_HANDLING remain largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Blueprint Completeness & Approval
+
+(BLUEPRINT_VALIDATION_AND_APPROVAL remains largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Artifact Annotation Rules (Generalized)
+
+(ANNOTATION_REQUIREMENT, ANNOTATION_VALIDATION remain largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Task Complexity & Decomposition
+
+(COMPLEXITY_DECOMPOSITION, COMPLEXITY_VALIDATION remain largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Artifact Generation Rules
+
+(CHUNKED_GENERATION, GENERATION_RETRY remain largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Retry Mechanism
+
+(RETRY_ATTEMPT, MAX_RETRIES_REACHED_HANDLER remain largely the same, ensuring logging uses RULE_LOG_EVENT.)
+
+Artifact Registry & Codebase Index (codebase_registry.md)
+
+Structure of codebase_registry.md:
+
+# Artifact Registry & Codebase Index
+
+## Codebase Index
+<!--
+This section provides a quick mapping of logical artifact identifiers to their physical locations.
+Example:
+*   **[CoreLibrary.Utils]:** `src/core/utils.py`
+*   **[API.Endpoints.UserManagement]:** `src/api/users/endpoints.py#UserRoutes`
+*   **[Documentation.SetupGuide]:** `docs/setup_guide.md`
+*   **[Configuration.Database]:** `config/database.yaml::settings.production`
+-->
+*   <!-- Entries to be populated by RULE_REGISTRY_MAINTENANCE -->
+
+## Artifact Details
+<!--
+This section provides detailed metadata for each registered artifact.
+-->
+
+### [Identifier: CoreLibrary.Utils]
+*   **Purpose:** Provides common utility functions for the core library.
+*   **Type/Medium:** Python Module
+*   **Location:** `src/core/utils.py`
+*   **Interfaces:**
+    *   `function_a(param1: str) -> bool`
+    *   `class HelperClass: ...`
+*   **Dependencies:**
+    *   `[Identifier: ExternalLib.Requests]` (if tracking external logical deps)
+*   **Prerequisites:** None
+*   **Dependents:**
+    *   `[Identifier: API.Endpoints.UserManagement]`
+*   **Key Design Decisions/Notes:** Optimized for performance using X method.
+*   **Version/Last Modified:** v1.1 / YYYY-MM-DD HH:MM:SS
+*   **Status:** Completed
+<!-- Other artifact entries follow the same structure -->
+
+
+RULE_REGISTRY_MAINTENANCE
+Trigger:
+1. Artifact definition (including planned location) in an approved PHASE_BLUEPRINT.
+2. Completion and validation of an artifact in PHASE_CONSTRUCT / PHASE_VALIDATE.
+3. Significant modification or relocation of an existing artifact.
+Action:
+
+Call RULE_LOG_EVENT: "Registry maintenance triggered for artifact <Identifier> due to <reason>."
+
+Load codebase_registry.md into an in-memory representation.
+
+Update/Create Codebase Index Entry:
+
+Find or create an entry in the "Codebase Index" section mapping the artifact's Identifier to its Location (file path, URI, specific section).
+
+Update/Create Artifact Details Entry:
+
+Find or create a dedicated ### [Identifier: <Identifier>] section under "Artifact Details".
+
+Populate/update all required fields: Purpose, Type/Medium, Location (consistent with Index), Interfaces, Dependencies, Prerequisites, Dependents, Key Design Decisions, Version/Last Modified, Status.
+
+When updating dependencies for artifact A, also attempt to update the "Dependents" list of the artifacts B, C, etc., that A depends on.
+
+Dependency Graph Integrity Check (In-Memory):
+
+After any update involving dependencies, scan the in-memory representation of the registry for circular dependencies involving the modified artifact or its related dependencies/dependents.
+
+If circular dependency detected:
+
+Call RULE_LOG_EVENT: "CRITICAL: Circular dependency detected involving <Artifact IDs> during registry update. Halting registry write for this change."
+
+Set State.Status=BLOCKED_CIRCULAR_DEPENDENCY.
+
+(The in-memory change that caused the circular dependency should NOT be persisted to codebase_registry.md. The AI must then trigger ESCALATION for blueprint revision.)
+
+Return without writing to codebase_registry.md for this problematic change.
+
+Persist codebase_registry.md: Write the complete, updated in-memory representation back to the codebase_registry.md file, overwriting the previous version.
+
+Call RULE_LOG_EVENT: "Successfully updated and persisted codebase_registry.md for artifact <Identifier> (or global check)."
+
+RULE_REGISTRY_ACCURACY_CHECK
+Trigger: During PHASE_VALIDATE (holistically for the project) or before major milestones.
+Action:
+
+Call RULE_LOG_EVENT: "Initiating registry accuracy check."
+
+Load codebase_registry.md.
+
+Cross-reference actual implemented artifacts (their existence, locations, and observed dependencies if possible) against the codebase_registry.md entries.
+
+Verify:
+
+All significant codebase artifacts have entries.
+
+Locations in the index and details match actual file paths.
+
+Dependencies and interfaces appear consistent with code (high-level check).
+
+Call RULE_LOG_EVENT: "Registry accuracy check results: <summary of findings>."
+
+If discrepancies found, flag them and potentially trigger RULE_REGISTRY_MAINTENANCE for specific artifacts or notify the user.
+
+Session Metrics (Generalized)
+
+(SESSION_SUMMARY_METRICS remains largely the same, ensuring logging uses RULE_LOG_EVENT. Metrics could now also include "Number of Registry Entries" or "Registry Integrity Issues Found".)
