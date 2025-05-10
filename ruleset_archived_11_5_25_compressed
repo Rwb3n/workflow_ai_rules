@@ -34,7 +34,8 @@ ART  (registry/<d>/<id>.json)
   kdd str   keyDesignDecisions
   evt int   lastModifiedEventId
   st  str   status
-  ki  [id]  activeKnownIssues  
+  ki  [id]  activeKnownIssues
+  *loc file must embed annotations ⇒ purpose, logic, deps refs, dependents(opt), issue links  
 
 ISS  (ki.issues[id])
   k   LINT|RUN|OTH
@@ -49,24 +50,26 @@ ISS  (ki.issues[id])
 PH  A ANALYZE B BLUEPRINT C CONSTRUCT V VALIDATE  
 
 R
-  LOG   g++, ln++; append {"id":g,"ph":ph,"st":st,"msg":m,"det":d}; if ln≥max → roll
-  SAVE  v++, last=g; opt-lock write s
-  INIT  mkdir l,r; create s,rs,cp,ki; LOG init; SAVE
-  RESUME load s; LOAD_ISS; LOG resume
+  LOG       g++, ln++; append {"id":g,"ph":ph,"st":st,"msg":m,"det":d}; if ln≥max → roll
+  SAVE      v++, last=g; opt-lock write s
+  INIT      mkdir l,r; create s,rs,cp,ki; LOG init; SAVE
+  RESUME    load s; LOAD_ISS; LOG resume
   LOAD_ISS  read ki; issues←ACTIVE; LOG count
-  CMD   ph=…; LOG; SAVE
-  BLOCK st=BLOCK_*; LOG; SAVE
-  RETRY rt[task]++; rt<MAX? retry: st=BLOCK_MAX
-  LOCK_CON resolve else st=BLOCK_CONFLICT
-  PERS  opt-lock write any versioned JSON
-  LINT  new issue → RECORD
-  REG   create|update|delete ART + rs via PERS
-  CONS  registry consistency / cycle / orphan check
-  ORPH  file-system orphan scan
-  VAL   tests; pass→ART.st=Completed; fail→BLOCK_VALID; resolve issues  
+  CMD       ph=…; LOG; SAVE
+  BLOCK     st=BLOCK_*; LOG; SAVE
+  RETRY     rt[task]++; rt<MAX? retry: st=BLOCK_MAX
+  LOCK_CON  resolve else st=BLOCK_CONFLICT
+  PERS      opt-lock write any versioned JSON
+  LINT      new issue → RECORD
+  REG       create|update|delete ART + rs via PERS
+  CONS      registry consistency / cycle / orphan check
+  ORPH      file-system orphan scan
+  VAL       tests; pass→ART.st=Completed; fail→BLOCK_VALID; resolve issues
+  ANNO_GEN  C: embed annotations (purpose, logic, deps refs, dependents opt, issue links)
+  ANNO_VAL  V: verify annotations present & adequate; flag gaps  
 
 I
-  RECORD  write ki via PERS; issues[id]=…; REG add link
-  RESOLVE mark RES; PERS; delete issues[id]; REG remove link  
+  RECORD   write ki via PERS; issues[id]=…; REG add link
+  RESOLVE  mark RES; PERS; delete issues[id]; REG remove link  
 
-D  optimistic-lock, unique IDs, graceful IO, minimal prompts, precise edits
+D  optimistic-lock, unique IDs, graceful IO, minimal prompts, precise edits, thorough annotations
