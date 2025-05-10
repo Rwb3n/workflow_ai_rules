@@ -1,0 +1,359 @@
+Preamble:
+This ruleset governs the AI agent's operation for any project medium. It emphasizes disciplined phase transitions, robust state management, proactive quality control, a comprehensive artifact registry with a codebase index, and a detailed blueprint plan. Log, state, registry, and plan information are maintained in separate, dedicated Markdown files for human readability and system processing.
+
+Dedicated Files:
+
+codebase_state.md: Contains the current operational state of the AI, including the global log entry counter, current phase, status, active task identifiers, and retry counts.
+
+codebase_log.md: A chronological, append-only log of all significant AI actions, events, and state changes, indexed by State.LogEntryCounter.
+
+codebase_registry.md: Contains detailed information about all project artifacts/modules, their relationships, a list of common artifact types for the project, and an index mapping artifacts to their codebase locations.
+
+codebase_plan.md: A persistent, append-only store of all approved blueprints, including their complexity assessment and sub-task decomposition. This serves as a reference, especially for context recovery.
+
+State Variables (in codebase_state.md)
+
+State.LogEntryCounter: Integer. Starts at 0 for a new project, increments for each new entry in codebase_log.md. This is the primary sequencing mechanism.
+
+State.Phase: String. Current workflow phase (e.g., ANALYZE, BLUEPRINT, CONSTRUCT, VALIDATE).
+
+State.Status: String. Current operational status (e.g., READY, NEEDS_APPROVAL, BLOCKED_CIRCULAR_DEPENDENCY, AWAITING_SUBTASK_COMPLETION, PROCESSING).
+
+State.RetryCount: Integer. Tracks current retry attempts for a specific fallible operation.
+
+State.CurrentTaskID: String. Identifier of the main artifact/blueprint task currently being worked on (e.g., [CoreLibrary.Utils]). Set to N/A if no specific task is active.
+
+State.CurrentSubTaskID: String. Identifier of the specific sub-task (derived from a blueprint) currently active (e.g., [CLU_S1]). Set to N/A if not working on a sub-task.
+
+State.SubTaskQueue: List of Strings. [Optional] An ordered list of pending sub-task IDs for the State.CurrentTaskID.
+
+Other Contextual State: Additional state variables may be added as needed. Convention: State.Contextual.<TaskName>.<VariableName> (e.g., State.Contextual.RefineBlueprint.UserQueryPending).
+
+Core Workflow Phases
+
+PHASE_ANALYZE
+
+Goal: Understand project requirements, define scope, analyze existing codebase/materials, and identify foundational elements.
+
+Key Actions:
+
+Process initial requirements.
+
+Identify and document "Common Artifact Types" expected for the project (see RULE_REGISTRY_UPDATE_COMMON_TYPES). These types will be recorded in codebase_registry.md.
+
+PHASE_BLUEPRINT
+
+Goal: For each artifact or significant module, create an unambiguous, detailed blueprint.
+
+Blueprint Contents (Mandatory):
+
+Identifier: Unique identifier for the artifact (e.g., [CoreLibrary.Utils]).
+
+Purpose and Scope: Clear description of what it does and its boundaries.
+
+Structure and Organization: High-level internal design.
+
+Planned Location/Path: The intended file path or URI. Initially derived from established project conventions or user input; may evolve with pattern-based rules.
+
+Interfaces: Defined inputs, outputs, APIs, or interaction points.
+
+Dependencies: List of other artifact identifiers it relies on.
+
+Prerequisites: Conditions or other artifacts that must exist/be met first.
+
+Acceptance Criteria: Measurable criteria for successful completion.
+
+ComplexityAssessment: A rating (e.g., LOW, MEDIUM, HIGH).
+
+SubTaskDecomposition: If ComplexityAssessment is MEDIUM or higher, a list of granular sub-tasks required to implement the blueprint. Each sub-task must have a unique ID (e.g., [<ArtifactID>_S1], [<ArtifactID>_S2]).
+
+Constraint: No entry into PHASE_CONSTRUCT for an artifact until its blueprint is approved via BLUEPRINT_VALIDATION_AND_APPROVAL.
+
+PHASE_CONSTRUCT
+
+Goal: Implement artifacts according to their approved blueprints. If sub-tasks are defined, process them sequentially.
+
+Key Actions: Code generation, file creation, content writing, tool execution.
+
+PHASE_VALIDATE
+
+Goal: Verify that constructed artifacts meet their acceptance criteria and integrate correctly.
+
+Key Actions: Running tests, performing checks, RULE_REGISTRY_ACCURACY_CHECK.
+
+Transition Rules
+(Standard rules like TRANSITION_BY_COMMAND, TRANSITION_ON_BLOCKER apply, ensuring all transitions are logged via RULE_LOG_EVENT.)
+
+Initialization & Resumption
+
+RULE_INIT_NEW_PROJECT
+
+Trigger: No codebase_state.md file exists in the working directory.
+
+Action:
+
+Create and initialize codebase_state.md:
+
+Set State.LogEntryCounter = 0.
+
+Set State.Phase = ANALYZE.
+
+Set State.Status = READY.
+
+Set State.CurrentTaskID = N/A.
+
+Set State.CurrentSubTaskID = N/A.
+
+Create an empty codebase_log.md.
+
+Create codebase_registry.md with headings: # Artifact Registry & Codebase Index, ## Common Artifact Types, ## Codebase Index, ## Artifact Details.
+
+Create codebase_plan.md with heading: # Project Blueprints.
+
+Call RULE_LOG_EVENT: "Initialized new session. Core files created. Prompting for requirements."
+
+Prompt user for initial project requirements.
+
+Call RULE_LOG_EVENT: "State.Phase set to ANALYZE. State.Status set to READY."
+
+Persist codebase_state.md using RULE_STATE_PERSISTENCE.
+
+RULE_RESUME_PROJECT
+
+Trigger: An existing codebase_state.md file is found.
+
+Action:
+
+Load all variables from codebase_state.md into memory. Let the loaded counter be loaded_state_counter.
+
+(Assume codebase_log.md, codebase_registry.md, and codebase_plan.md exist).
+
+Synchronize Log Entry Counter:
+
+Attempt to read the log entry number from the last line of codebase_log.md.
+
+If a last_log_counter is successfully parsed from codebase_log.md and last_log_counter > loaded_state_counter:
+
+Set in-memory State.LogEntryCounter = last_log_counter.
+
+Call RULE_LOG_EVENT (using the new counter): "Resumed session. LogEntryCounter updated from loaded_state_counter to State.LogEntryCounter based on log file."
+
+Persist codebase_state.md immediately.
+
+Else (no update needed or possible):
+
+Set in-memory State.LogEntryCounter = loaded_state_counter.
+
+Call RULE_LOG_EVENT: "Resumed session. Current Phase: <State.Phase>, Status: <State.Status>, Task: <State.CurrentTaskID>, SubTask: <State.CurrentSubTaskID>."
+
+Report current phase, status, and active task/sub-task to the user.
+
+Prompt user for the next action or to continue the current task/sub-task.
+
+State Management & Logging
+
+RULE_LOG_EVENT
+
+Action (Generic): Invoked for any significant AI action, event, or state change.
+
+Increment in-memory State.LogEntryCounter by 1.
+
+Format log message: "[<State.LogEntryCounter>] {Task:<State.CurrentTaskID_or_N/A>}{SubTask:<State.CurrentSubTaskID_or_N/A>} <Descriptive message>"
+
+Append the formatted message to codebase_log.md.
+(Note: This rule does NOT automatically persist codebase_state.md.)
+
+RULE_STATE_PERSISTENCE
+
+Trigger: After critical state changes (e.g., State.Phase, State.Status, State.CurrentTaskID, State.CurrentSubTaskID) or periodically during long, uninterruptible operations.
+
+Action:
+
+Write the current in-memory state (all State.* variables) to codebase_state.md, overwriting its previous content.
+
+Call RULE_LOG_EVENT: "Core AI state persisted to codebase_state.md."
+
+Error Handling & Recovery
+(Rules such as AUTO_FIX_THRESHOLD, ESCALATION_TO_USER, UNKNOWN_FAILURE_HANDLER, RETRY_RESET, ENVIRONMENT_TOOL_FEEDBACK_AWARENESS remain conceptually the same, ensuring they all utilize RULE_LOG_EVENT for logging their actions and outcomes.)
+
+Quality Validation
+(Rules like VERIFICATION_CHECKS and QUALITY_FAILURE_HANDLING remain conceptually the same, using RULE_LOG_EVENT.)
+
+Blueprint Management
+
+RULE_BLUEPRINT_VALIDATION_AND_APPROVAL
+
+Trigger: A fully defined blueprint is submitted for approval (typically by the AI itself after generation or by user command).
+
+Action:
+
+Perform validation checks on the blueprint's completeness and coherence.
+
+If validation passes and approval is granted (either automatically or by user):
+
+Set State.CurrentTaskID to the blueprint's artifact Identifier.
+
+If SubTaskDecomposition exists in the blueprint:
+
+Populate State.SubTaskQueue with the sub-task IDs.
+
+Set State.CurrentSubTaskID to the first sub-task ID from the queue (or N/A if queue is empty, to be picked next).
+
+Else, set State.CurrentSubTaskID = N/A.
+
+Format the approved blueprint and append it to codebase_plan.md. Include a header like:
+## Blueprint: [<ArtifactIdentifier>] (Approved at Log Unit: <State.LogEntryCounter_at_approval>)
+
+Call RULE_LOG_EVENT: "Blueprint for <ArtifactIdentifier> approved. Details appended to codebase_plan.md. Active task set."
+
+Set State.Status = READY (or similar to indicate readiness for construction).
+
+Persist codebase_state.md.
+
+If validation fails or approval is denied:
+
+Call RULE_LOG_EVENT: "Blueprint for <ArtifactIdentifier> rejected. Reason: <Specific reason(s)>."
+
+Set State.Status = NEEDS_REVISION (or similar).
+
+Persist codebase_state.md.
+
+Artifact Registry & Codebase Index (codebase_registry.md)
+
+Structure Example for codebase_registry.md:
+
+# Artifact Registry & Codebase Index
+
+## Common Artifact Types
+<!-- This section is populated by RULE_REGISTRY_UPDATE_COMMON_TYPES during ANALYZE/BLUEPRINT -->
+*   **Python Module:** A .py file typically containing classes and functions.
+*   **Markdown Document:** A .md file for textual content and documentation.
+
+## Codebase Index
+<!-- Maps logical artifact identifiers to their physical locations. -->
+*   **[CoreLibrary.Utils]:** `src/core/utils.py`
+*   **[Docs.UserGuide]:** `docs/user_guide.md`
+
+## Artifact Details
+<!-- Detailed metadata for each registered artifact. -->
+### [Identifier: CoreLibrary.Utils]
+*   **Purpose:** Provides common utility functions.
+*   **Type/Medium:** Python Module
+*   **Location:** `src/core/utils.py`
+*   **Interfaces:** `def utility_a(param: str) -> bool; class Helper {}`
+*   **Dependencies:** `[ExternalLib.Requests]`
+*   **Prerequisites:** None
+*   **Dependents:** `[API.UserManagement]`
+*   **Key Design Decisions/Notes:** Initial version.
+*   **Version/Last Modified Log Unit:** 152
+*   **Status:** Completed
+
+
+RULE_REGISTRY_UPDATE_COMMON_TYPES
+
+Trigger: During PHASE_ANALYZE or PHASE_BLUEPRINT when new common artifact types relevant to the project are identified by the AI or user.
+
+Action:
+
+Call RULE_LOG_EVENT: "Updating common artifact types in registry."
+
+Load codebase_registry.md (or its relevant section) into memory.
+
+Add or update definitions/descriptions in the "## Common Artifact Types" section.
+
+Persist the modified codebase_registry.md.
+
+Call RULE_LOG_EVENT: "Common artifact types section updated in codebase_registry.md."
+
+RULE_REGISTRY_MAINTENANCE
+
+Trigger:
+
+An artifact's blueprint is approved (entry with Planned status).
+
+An artifact is successfully constructed/modified and validated.
+
+An artifact is significantly refactored, relocated, or deprecated.
+
+Action:
+
+Call RULE_LOG_EVENT: "Registry maintenance triggered for artifact <Identifier> due to <reason>."
+
+Load codebase_registry.md into an in-memory representation.
+
+Update/Create Main Artifact Entry:
+
+In "Codebase Index," ensure/update the mapping from Identifier to Location.
+
+In "Artifact Details," find or create the section for ### [Identifier: <Identifier>].
+
+Populate/update all relevant fields (Purpose, Type/Medium, Location, Interfaces, Dependencies, Prerequisites, Status, Key Design Decisions).
+
+Set Version/Last Modified Log Unit to the current State.LogEntryCounter.
+
+Update Dependencies & Dependents:
+
+For each DependencyID listed in the current artifact's "Dependencies":
+
+Attempt to find DependencyID in the registry.
+
+If DependencyID exists, ensure the current artifact's Identifier is in DependencyID's "Dependents" list.
+
+If DependencyID does not exist:
+
+Create a placeholder entry for DependencyID in "Artifact Details" (Status: Placeholder, Location: TBD, add current artifact to its "Dependents" list).
+
+Add DependencyID to "Codebase Index" with location TBD.
+
+Call RULE_LOG_EVENT: "Placeholder registry entry created for <DependencyID> (dependency of <Identifier>)."
+
+Review other artifacts in the registry: if any list the current artifact as a dependency, ensure their "Dependents" list is accurate. If the current artifact's dependencies changed, reflect those changes in the "Dependents" lists of affected artifacts.
+
+Dependency Graph Integrity Check (In-Memory):
+
+Scan the in-memory registry for circular dependencies involving the modified artifact or its direct/indirect dependencies/dependents.
+
+If a circular dependency is detected:
+
+Call RULE_LOG_EVENT: "CRITICAL: Circular dependency detected involving <Artifact IDs>. Halting registry write for this change."
+
+Set State.Status = BLOCKED_CIRCULAR_DEPENDENCY.
+
+The in-memory change that caused the circular dependency MUST NOT be persisted to codebase_registry.md.
+
+Trigger ESCALATION_TO_USER for blueprint/design revision.
+
+Return without persisting codebase_registry.md for this specific problematic change.
+
+If no integrity issues, persist the complete, updated in-memory representation back to codebase_registry.md.
+
+Call RULE_LOG_EVENT: "Successfully updated and persisted codebase_registry.md for artifact <Identifier> (or global check)."
+
+RULE_REGISTRY_ACCURACY_CHECK
+
+Trigger: During PHASE_VALIDATE (holistically for the project), before major milestones, or by user command.
+
+Action:
+
+Call RULE_LOG_EVENT: "Initiating registry accuracy check."
+
+Load codebase_registry.md.
+
+Cross-reference actual implemented artifacts (existence, locations from file system) against codebase_registry.md.
+
+Verify:
+
+All significant codebase artifacts have entries.
+
+Locations in index and details match actual file paths.
+
+Dependencies and interfaces show high-level consistency with code (requires AI's code analysis capabilities).
+
+No artifacts with Status: Placeholder or Location: TBD that should have been resolved.
+
+Call RULE_LOG_EVENT: "Registry accuracy check results: <summary of findings>."
+
+If discrepancies are found, flag them. This may trigger RULE_REGISTRY_MAINTENANCE for specific artifacts or require user notification/intervention.
+
+Session Metrics (Generalized)
+(Rule SESSION_SUMMARY_METRICS remains: At the end of a session or on demand, the AI generates a summary. Metrics could include: Log Entries Created, Blueprints Approved, Artifacts Registered/Modified, Registry Placeholders, Tasks/Sub-tasks Completed, Errors Encountered, Warnings Issued. All logging uses RULE_LOG_EVENT.)
