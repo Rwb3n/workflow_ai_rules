@@ -1,0 +1,242 @@
+**Objective:** Govern AI agent for general project development, featuring phased workflow, state integrity, JSON-based logging with configurable rollover, per-task retries, a sharded artifact registry with optimistic locking, an orphan location flagging system, and a persistent known issues ledger.
+
+**Core Files & Directories:**
+
+- codebase_state.json: Agent's operational state.
+    
+    - version: (int) Incremented on save of significant, non-volatile state changes for optimistic locking.
+        
+    - globalMonotonicEventCounter: (int) Global unique ID for all significant events, serves as primary ordering.
+        
+    - currentLogFile: (string) Path to active log file (e.g., logs/log_unit_1.jsonl).
+        
+    - logEntriesInCurrentFile: (int) Count for rollover.
+        
+    - logRolloverThreshold: (int) Configurable limit for entries per log file (e.g., 1000).
+        
+    - phase: (string) ANALYZE, BLUEPRINT, CONSTRUCT, VALIDATE.
+        
+    - status: (string) Current operational status (e.g., READY, NEEDS_APPROVAL, BLOCKED_*).
+        
+    - taskRetryCounts: (object) {"taskId1": count, "taskId2": count}.
+        
+    - lastPersistedEventId: (int) The globalMonotonicEventCounter value at the time of the last successful batched state persistence.
+        
+    - ActiveIssues: (object) In-memory cache of issues from known_issues.json where status: "ACTIVE", keyed by issueId.
+        
+- logs/: Directory for log_unit_<n>.jsonl files.
+    
+- registry/: Directory for sharded registry/<domain>/<identifier>.json artifact files.
+    
+- registry_summary.json: Maps artifactIdentifier to its JSON file path; includes a version field for optimistic locking.
+    
+- codebase_plan.json: Output of BLUEPRINT phase; includes a version field for optimistic locking.
+    
+- known_issues.json: Ledger for recorded workarounds and suppressions; includes a version field for optimistic locking.
+
+Artifact JSON Structure (registry/<domain>/<identifier>.json):
+{
+  "version": 1, "identifier": "string", "domain": "string", "purpose": "string",
+  "type": "string", "location": "string", "interfaces": ["string"],
+  "dependencies": ["identifier"], "prerequisites": ["identifier"], "dependents": ["identifier"],
+  "keyDesignDecisions": "string", "lastModifiedEventId": 1234, "status": "string",
+  "activeKnownIssues": ["issueId1", "issueId2"] // List of active issue IDs related to this artifact
+}
+
+Known Issue JSON Structure (within issues object in known_issues.json):
+"<issueId>": {
+  "kind": "LINTER_SUPPRESSION" | "RUNTIME_WORKAROUND" | "OTHER",
+  "rule": "string_identifier_of_rule_or_pattern",
+  "artifact": "RegistryIdentifier",
+  "location": "string_path_and_line_or_context",
+  "justification": "string_reason_for_workaround",
+  "introducedEvent": 1234, // globalMonotonicEventCounter
+  "status": "ACTIVE" | "RESOLVED",
+  "resolvedEvent": null | 5678 // globalMonotonicEventCounter
+}
+
+**1. Core Workflow Phases**
+**1.1. PHASE_ANALYZE**
+    **Goal:** Understand requirements, context, constraints.
+    **Input:** User prompts, existing project artifacts.
+    **Output:** Internal understanding. Log key findings via `RULE_LOG_EVENT`.
+    **Constraint:** No solution design.
+
+**1.2. PHASE_BLUEPRINT**
+    **Goal:** Create detailed project plan.
+    **Input:** Output of ANALYZE phase.
+    **Output:** `codebase_plan.json` (initially `version: 1`).
+    **Constraint:** No implementation until `codebase_plan.json` is approved.
+
+**1.3. PHASE_CONSTRUCT**
+    **Goal:** Execute `codebase_plan.json`.
+    **Input:** Approved `codebase_plan.json`, `registry_summary.json`, `State.ActiveIssues`.
+    **Output:** Created/modified project artifacts. Updates to `registry/`, `registry_summary.json`, potentially `known_issues.json`.
+    **Constraint:** Adhere to plan. Deviations require blueprint revision. Handle tool feedback (may trigger `LINT_FAILURE_HANDLER`, etc.).
+
+**1.4. PHASE_VALIDATE**
+    **Goal:** Verify artifacts against `codebase_plan.json` acceptance criteria and quality standards. Review active known issues.
+    **Input:** Constructed artifacts, `codebase_plan.json`, `registry_summary.json`, `State.ActiveIssues`, `known_issues.json`.
+    **Output:** Validation report (logged). Status updates in registry and `known_issues.json`.
+    **Constraint:** No new implementation; assessment and resolution of known issues only.
+
+**2. State, Logging, and Initialization**
+**2.1. RULE_LOG_EVENT**
+    **Input:** `message (string)`, `details (optional object)`
+    **Action:**
+        1. Increment `State.globalMonotonicEventCounter`.
+        2. Increment `State.logEntriesInCurrentFile`.
+        3. Create log JSON: `{"event_id": State.globalMonotonicEventCounter, "phase": State.phase, "status": State.status, "msg": message, "details": details}`.
+            *   **Constraint:** Any included timestamp is for human informational purposes ONLY. Programmatic ordering MUST use `event_id`.
+        4. Append to `State.currentLogFile`.
+        5. **Rollover:** If `State.logEntriesInCurrentFile >= State.logRolloverThreshold`:
+            a. Update `State.currentLogFile` to `logs/log_unit_<next_n>.jsonl`.
+            b. Reset `State.logEntriesInCurrentFile = 0`. Create new log file.
+            c. `RULE_LOG_EVENT(msg: "Log file rolled over.", details: {"new_file": State.currentLogFile})`.
+
+**2.2. RULE_PERSIST_STATE_FILE_BATCHED**
+    **Trigger:** Phase transitions; after N (configurable) log events since last persist; before agent shutdown/pause; after critical operations.
+    **Action:**
+        1. Let `currentInMemoryStateVersion = State.version`.
+        2. `State.lastPersistedEventId = State.globalMonotonicEventCounter`. Increment `State.version`.
+        3. Attempt write `State` to `codebase_state.json`.
+        4. **If conflict (file on disk has version > `currentInMemoryStateVersion`):**
+            a. `RULE_LOG_EVENT(msg: "CRITICAL: State persistence conflict.", details: {"file": "codebase_state.json", ...})`.
+            b. `State.status = BLOCKED_STATE_CONFLICT`. Escalate. Revert `State.version`, `State.lastPersistedEventId` in memory.
+        5. Else (write successful): `RULE_LOG_EVENT(msg: "Core AI state persisted.", details: {"persisted_event_id": State.lastPersistedEventId, "new_state_version": State.version})`.
+
+**2.3. RULE_INIT_NEW_PROJECT**
+    **Action:**
+        1. Create `logs/`, `registry/` dirs.
+        2. Init `codebase_state.json` (`version: 1`, counters 0, `logRolloverThreshold: 1000`, `currentLogFile`, `phase: "ANALYZE"`, `status: "READY"`, `taskRetryCounts: {}`, `lastPersistedEventId: 0`, `ActiveIssues: {}`).
+        3. Create empty `logs/log_unit_1.jsonl`.
+        4. Init `registry_summary.json` (`{"version": 1, "artifacts": {}}`).
+        5. Init `codebase_plan.json` (`{"version": 1, "artifacts": {}}`).
+        6. Init `known_issues.json` (`{"version": 1, "issues": {}}`).
+        7. Call `RULE_LOAD_KNOWN_ISSUES_ON_START`.
+        8. `RULE_LOG_EVENT(msg: "Initialized new session.")`. Call `RULE_PERSIST_STATE_FILE_BATCHED`.
+        9. Prompt for requirements.
+
+**2.4. RULE_RESUME_PROJECT**
+    **Action:**
+        1. Load `codebase_state.json`.
+        2. Call `RULE_LOAD_KNOWN_ISSUES_ON_START`.
+        3. `RULE_LOG_EVENT(msg: "Resumed session.")`. Report phase/status. Prompt for action.
+
+**2.5. RULE_LOAD_KNOWN_ISSUES_ON_START**
+    **Action:**
+        1. Load `known_issues.json`. If error, log warning, `State.ActiveIssues = {}`.
+        2. Populate `State.ActiveIssues` with issues where `status: "ACTIVE"`.
+        3. `RULE_LOG_EVENT(msg: "Known issues loaded into active cache.", details: {"count": Object.keys(State.ActiveIssues).length})`.
+
+**3. Transitions**
+**3.1. TRANSITION_BY_COMMAND**
+    **Action:** Update `State.phase`. `RULE_LOG_EVENT(...)`. Call `RULE_PERSIST_STATE_FILE_BATCHED`.
+
+**3.2. TRANSITION_ON_BLOCKER**
+    **Action:** Update `State.phase`, `State.status`. `RULE_LOG_EVENT(...)`. Call `RULE_PERSIST_STATE_FILE_BATCHED`.
+
+**4. Error Handling, Retry, and Issue Management**
+**4.1. AUTO_FIX**
+    **Action:** Attempt fix for small, pattern-based errors. `RULE_LOG_EVENT` outcome. Escalate on failure.
+
+**4.2. RETRY_MECHANISM**
+    **Input:** `taskId (string)`, `errorInfo (object)`
+    **Action:** Increment `State.taskRetryCounts[taskId]`. `RULE_LOG_EVENT(...)`. If `< MAX_RETRIES`, attempt alternative. Else, `State.status = BLOCKED_MAX_RETRIES`, Escalate.
+
+**4.3. ESCALATION**
+    **Action:** `RULE_LOG_EVENT(...)`. Trigger `TRANSITION_ON_BLOCKER`.
+
+**4.4. RULE_HANDLE_OPTIMISTIC_LOCK_CONFLICT**
+    **Input:** `filePath`, `failedWriteData`, `loadedDiskData`
+    **Action:**
+        1. `RULE_LOG_EVENT(msg: "Optimistic lock conflict.", details: {"file": filePath, ...})`.
+        2. **Attempt Auto-Reconcile:** Re-apply original semantic intent to `loadedDiskData`.
+        3. If successful re-apply: `reconciledData.version = Math.max(loadedDiskData.version, failedWriteData.version) + 1`. Attempt `RULE_PERSIST_JSON_WITH_LOCK(filePath, reconciledData)`. If success, log and return SUCCESS.
+        4. **Else (Auto-Reconcile Fails):** `State.status = BLOCKED_FILE_CONFLICT`. Log. Escalate. Return FAILURE.
+
+**4.5. RULE_PERSIST_JSON_WITH_LOCK**
+    **Input:** `filePath (string)`, `dataToWrite (object with 'version')`
+    **Action:**
+        1. Read current file from `filePath`. Let `diskVersion` be its version (0 if not exists).
+        2. If file exists AND `dataToWrite.version <= diskVersion`: Call `RULE_HANDLE_OPTIMISTIC_LOCK_CONFLICT`. Return its result.
+        3. Write `dataToWrite` to `filePath`. Return SUCCESS.
+
+**4.6. LINT_FAILURE_HANDLER** (Example)
+    **Input:** `linterErrorDetails ({rule, artifactIdentifier, location, rawMessage})`
+    **Action:**
+        1. Generate `issueId` (e.g., "LINT_" + hash). Check `State.ActiveIssues` for duplicates.
+        2. Prepare `issuePayload` (`kind: "LINTER_SUPPRESSION"`, etc.).
+        3. Call `RULE_RECORD_KNOWN_ISSUE(issueId, issuePayload)`. If FAILURE, escalate.
+        4. **If successful:** Insert suppression directive in code referencing `issueId`. Log.
+
+5. Artifact Registry (registry/, registry_summary.json)
+**5.1. RULE_REGISTRY_MAINTENANCE**
+    **Input:** `artifactIdentifier`, `action (CREATE|UPDATE|DELETE)`, `artifactData`, `relatedIssueId (optional)`, `issueAction (optional ADD|REMOVE)`
+    **Action:**
+        1. `RULE_LOG_EVENT(msg: "Registry maintenance.", ...)`.
+        2. Determine path: `filePath = registry/<domain>/<id>.json`.
+        3. **CREATE:** `artifactData.version = 1`, `lastModifiedEventId = State.globalMonotonicEventCounter`. `RULE_PERSIST_JSON_WITH_LOCK(filePath, artifactData)`.
+        4. **UPDATE:** Load `currentArtifactJson`. Handle optimistic lock with `artifactData.version`. Merge changes. `currentArtifactJson.version++`, `lastModifiedEventId = State.gMEC`. Update `activeKnownIssues` list if `relatedIssueId` provided. `RULE_PERSIST_JSON_WITH_LOCK(filePath, currentArtifactJson)`. Update cross-links (each using optimistic lock).
+        5. **DELETE:** Load artifact JSON. Delete file. Update cross-links. `RULE_LOG_EVENT(msg: "Potential orphan location.", ...)`.
+        6. **Update `registry_summary.json`:** Load, modify, increment `version`, save using `RULE_PERSIST_JSON_WITH_LOCK`. Handle conflicts by reloading summary and re-applying.
+    *   **PERFORMANCE_NOTE:** High fan-out for cross-links can be slow. Consider queued updates.
+    *   **Circular Dependency Check:** Best via `RULE_REGISTRY_CONSISTENCY_CHECK`.
+
+**5.2. RULE_REGISTRY_CONSISTENCY_CHECK**
+    **Action:** Iterate `registry_summary.json`. Verify artifact files, locations, dependencies, dependents. Full circular dependency scan. Log results. Escalate critical.
+
+**5.3. RULE_ORPHAN_SCAN**
+    **Trigger:** On demand (`@scan_orphans`), periodically.
+    **Action:** Collect registry `location`s. Scan source dirs. Log missing locations & unreferenced files. Present to user.
+
+**6. Plan Execution & Validation**
+**6.1. BLUEPRINT_TO_REGISTRY_INIT**
+    **Action:** For artifact in `codebase_plan.json`: Prepare initial `artifactData`. `RULE_REGISTRY_MAINTENANCE(action: CREATE, ..., status: "UnderConstruction")`.
+
+**6.2. ARTIFACT_VALIDATION** (Part of `PHASE_VALIDATE`)
+    **Action:**
+        1. Verify artifact against `acceptanceCriteria`. Run tests. Log.
+        2. If passed: `RULE_REGISTRY_MAINTENANCE(action: UPDATE, artifactData: {"status": "Completed", ...})`.
+        3. If failed: `State.status = BLOCKED_VALIDATION_FAILURE`. Escalate.
+        4. **Review Active Known Issues:** For each `issueId` in `State.ActiveIssues` related to validated artifacts:
+            a. Attempt to reproduce original condition.
+            b. If issue no longer active: Call `RULE_RESOLVE_KNOWN_ISSUE(issueId)`. If resolved, AI attempts to remove suppression/workaround code. Log.
+
+7. Known Issues Ledger (known_issues.json)
+**7.1. RULE_RECORD_KNOWN_ISSUE**
+    **Input:** `issueId (string)`, `issuePayload (object)`
+    **Action:**
+        1. `RULE_LOG_EVENT(msg: "Attempting record known issue.", ...)`.
+        2. Load `known_issues.json` into `ledgerData` (init if not exists). Store loaded version.
+        3. If `ledgerData.issues[issueId]?.status == "ACTIVE"`, log no-op and return SUCCESS.
+        4. `newEntry = { ...issuePayload, status: "ACTIVE", introducedEvent: State.globalMonotonicEventCounter }`. Update `ledgerData.issues[issueId]`.
+        5. `ledgerData.version = (ledgerData.version || 0) + 1`.
+        6. If `RULE_PERSIST_JSON_WITH_LOCK("known_issues.json", ledgerData)` fails (after its internal retry via `RULE_HANDLE_OPTIMISTIC_LOCK_CONFLICT`): Return FAILURE.
+        7. **If persist successful:** Update `State.ActiveIssues[issueId]`. Call `RULE_REGISTRY_MAINTENANCE` for `issuePayload.artifact` (`relatedIssueId: issueId, issueAction: "ADD"`). Log. Return SUCCESS.
+        8. Else: Log failure. Return FAILURE.
+
+**7.2. RULE_RESOLVE_KNOWN_ISSUE**
+    **Input:** `issueId (string)`
+    **Action:**
+        1. `RULE_LOG_EVENT(msg: "Attempting resolve known issue.", ...)`.
+        2. Load `known_issues.json` into `ledgerData`. If error or `!ledgerData.issues[issueId]`, log error, return FAILURE.
+        3. If `ledgerData.issues[issueId].status == "RESOLVED"`, log no-op and return SUCCESS.
+        4. Let `artifactIdentifier = ledgerData.issues[issueId].artifact`.
+        5. `ledgerData.issues[issueId].status = "RESOLVED"`. `ledgerData.issues[issueId].resolvedEvent = State.globalMonotonicEventCounter`.
+        6. `ledgerData.version = (ledgerData.version || 0) + 1`.
+        7. If `RULE_PERSIST_JSON_WITH_LOCK("known_issues.json", ledgerData)` fails (after its internal retry): Return FAILURE.
+        8. **If persist successful:** Remove `issueId` from `State.ActiveIssues`. Call `RULE_REGISTRY_MAINTENANCE` for `artifactIdentifier` (`relatedIssueId: issueId, issueAction: "REMOVE"`). Log. Return SUCCESS.
+        9. Else: Log failure. Return FAILURE.
+
+**General AI Directives:**
+
+- **Optimistic Locking Strategy:** Read versioned file, store version. To write: increment version in data, call RULE_PERSIST_JSON_WITH_LOCK. Handle conflicts as per RULE_HANDLE_OPTIMISTIC_LOCK_CONFLICT.
+    
+- **Task IDs & Issue IDs:** Generate consistent, unique IDs.
+    
+- **File System Robustness:** Handle I/O errors gracefully.
+    
+- **User Interaction:** Prompt only when rules dictate or ambiguity is unresolvable.
+    
+- **Code Modification:** AI must precisely insert/remove code for issue suppressions/workarounds.
