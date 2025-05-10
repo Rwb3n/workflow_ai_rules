@@ -1,0 +1,72 @@
+OBJ  phased AI project workflow: phases, state, JSON logs (rollover), retries, sharded registry (opt-lock), orphan scan, issues ledger  
+
+F
+  s   codebase_state.json
+  l   logs/
+  r   registry/
+  rs  registry_summary.json
+  cp  codebase_plan.json
+  ki  known_issues.json  
+
+S  (state file schema)
+  v       int   version
+  g       int   globalMonotonicEventCounter
+  lf      str   currentLogFile
+  ln      int   logEntriesInCurrentFile
+  max     int   logRolloverThreshold
+  ph      A|B|C|V
+  st      str   status
+  rt      obj   {task:count}
+  last    int   lastPersistedEventId
+  issues  obj   {id:issue}  
+
+ART  (registry/<d>/<id>.json)
+  v   int
+  id  str
+  d   str   domain
+  pu  str   purpose
+  t   str   type
+  loc str   location
+  if  [str] interfaces
+  dep [id]  dependencies
+  pre [id]  prerequisites
+  depd[id]  dependents
+  kdd str   keyDesignDecisions
+  evt int   lastModifiedEventId
+  st  str   status
+  ki  [id]  activeKnownIssues  
+
+ISS  (ki.issues[id])
+  k   LINT|RUN|OTH
+  rule str
+  art  id
+  loc  str
+  why  str
+  intro int
+  st   ACT|RES
+  res  int|null  
+
+PH  A ANALYZE B BLUEPRINT C CONSTRUCT V VALIDATE  
+
+R
+  LOG   g++, ln++; append {"id":g,"ph":ph,"st":st,"msg":m,"det":d}; if ln≥max → roll
+  SAVE  v++, last=g; opt-lock write s
+  INIT  mkdir l,r; create s,rs,cp,ki; LOG init; SAVE
+  RESUME load s; LOAD_ISS; LOG resume
+  LOAD_ISS  read ki; issues←ACTIVE; LOG count
+  CMD   ph=…; LOG; SAVE
+  BLOCK st=BLOCK_*; LOG; SAVE
+  RETRY rt[task]++; rt<MAX? retry: st=BLOCK_MAX
+  LOCK_CON resolve else st=BLOCK_CONFLICT
+  PERS  opt-lock write any versioned JSON
+  LINT  new issue → RECORD
+  REG   create|update|delete ART + rs via PERS
+  CONS  registry consistency / cycle / orphan check
+  ORPH  file-system orphan scan
+  VAL   tests; pass→ART.st=Completed; fail→BLOCK_VALID; resolve issues  
+
+I
+  RECORD  write ki via PERS; issues[id]=…; REG add link
+  RESOLVE mark RES; PERS; delete issues[id]; REG remove link  
+
+D  optimistic-lock, unique IDs, graceful IO, minimal prompts, precise edits
