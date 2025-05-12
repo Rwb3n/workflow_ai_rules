@@ -1,0 +1,47 @@
+##################################################################################################################################
+# AIOS_LogIndex_v0.1 adds a single opt-locked file log_index.json that records, for every completed logs/log_unit_<n>.jsonl, 
+# the event-ID range it contains and the list of plan IDs that appeared in those entries. 
+# This lightweight index lets any tool or post-mortem script locate all log segments for a given plan
+# without scanning raw log content.
+#
+# The plugin inserts three hooks into the Hybrid AI OS core: creation of log_index.json during INIT,
+# automatic UPDATE_LI on each log rollover triggered inside LOG, and a rebuild pass inside
+# CONSISTENCY_CHECK. UPDATE_LI parses the finished log file to collect unique "plan" values, updates the
+# index with {plans,start,end}, bumps the file version, and saves via the standard OPT routine; failures log
+# LogIndex conflict but never block operation.
+####################################################################################################################################
+
+LAYER   [AIOS_LogIndex_v0.1]  – optional plugin for Hybrid_AI_OS v1.4  
+
+PURPOSE  Maintain li log_index.json mapping each log_unit_<n>.jsonl to  
+         {plans:[planId], start_evt, end_evt} for fast plan-centric log retrieval.  
+
+FILES
+  li   log_index.json   // opt-lock  
+
+LI  (schema)
+  v   int
+  idx obj { "logs/log_unit_7.jsonl": {plans:[p1,p2], start:int, end:int} }
+  last_g int   // highest globalEvent indexed  
+
+HOOKS
+  INIT      if !li → li={v:1,idx:{},last_g:0}; OPT(li)  
+  LOG       when ln==max before rollover  
+              old=State.currentLogFile; range={start:g-ln+1,end:g}  
+              UPDATE_LI(old,range)  
+  CONSISTENCY_CHECK   scan log dir; rebuild missing li entries; OPT(li)  
+
+UPDATE_LI(path,range)
+  load oldPath; plans=unique cp values parsed from its entries  
+  load li; li.idx[path]={plans,start:range.start,end:range.end}; li.v++; li.last_g=range.end; OPT(li)  
+    on CONFLICT → LOG("LogIndex conflict",E) (non-blocking)  
+
+PARSING
+  Entry example: {"id":42,"ph":"C","plan":"plan_123",…}  
+  Extract “plan” field; accumulate during scan.  
+
+STATUS
+  Plugin does not alter State.ph or st; failures block nothing.  
+
+DEPLOY
+  Add layer file; register hooks; no other core changes.
