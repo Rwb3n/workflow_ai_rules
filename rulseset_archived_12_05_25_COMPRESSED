@@ -1,0 +1,146 @@
+OBJ A → B → C → V → (loop | I)  // ANALYZE, BLUEPRINT, CONSTRUCT, VALIDATE, IDLE
+
+FILES & DIRS
+  s    state.json                            // opt-lock
+  l    logs/log_unit_<n>.jsonl               // JSONL, rollover
+  r    registry/<dom>/<id>.json              // opt-lock
+  rs   registry_summary.json                 // opt-lock (artifact id → path)
+  p    plans/<dom>/<id>.json                 // opt-lock
+  ps   plan_summary.json                     // opt-lock (plan id → path)
+  ki   known_issues.json                     // opt-lock
+
+STATE (s)
+  v   int  version
+  g   int  globalEvent
+  ln  int  logEntriesInCurrentFile
+  max int  logRolloverThreshold
+  ph  A|B|C|V|I
+  st  READY|BUSY|BLK_CON|BLK_SUM|BLK_PSUM|BLK_MAX|ERROR
+  cp  str? currentPlanId
+  ct  str? currentTaskId
+  rt  obj  {taskId:int}
+  iss obj  {issueId:payload}
+  err str? errorContext
+
+PLAN (p/<dom>/<id>.json)
+  v   int
+  id  str
+  dom str
+  goal str
+  tasks [ { id, desc, crit:[…], st:PEND|DONE, rt:int } ]
+  evt int
+
+ART (r/<dom>/<id>.json) // unchanged from v1.3 (includes annotations rule)
+
+ISS (ki.issues)         // unchanged
+
+OUT (task output → REG)
+  id  str artifact id
+  dom str registry domain
+  loc str path / content ref
+  type str
+  pu? str
+  if? [str]
+  dep? [id]
+
+──
+RULES
+
+INIT
+  load s else new; mkdir l,r,p; mk rs,ps,ki if new
+  LOAD_ISS; sync g from last log; LOG("Session",I); st=READY; SAVE
+
+LOG(m,L)
+  g++; ln++; append {"id":g,"L":L,"ph":ph,"plan":cp,"task":ct,"msg":m}→l
+  if ln≥max → new log file
+  if L==E → err=m[:100]; st=ERROR
+  SAVE
+
+SAVE        v++; OPT(s)
+OPT(x)      read disk; x.v≤disk.v ? CONFLICT : write
+CONFLICT    LOG("Lock "+file,E); st=BLK_CON
+
+SET(p2)     
+  if p2≠ph → LOG("Phase→"+p2,I); ph=p2; st=READY; if p2∉{V,I} → ct=null; SAVE
+
+A (ANALYZE)
+  BUSY; SAVE; LOG("Analyze",I); AI analyze goal; LOG("Done",I); SET(B)
+
+B (BLUEPRINT – create plan)
+  BUSY; SAVE
+  planId = "plan_"+g
+  dom    = "default"              // or deduced from goal / user hint
+  tasks  = [ {id:"t1",desc:...,crit:[…],st:"PEND",rt:0}, … ]
+  plan   = {v:1,id:planId,dom,goal:...,tasks,evt:g}
+  path   = "plans/"+dom+"/"+planId+".json"
+  OPT(plan file)                  // step-A
+    if st==BLK_CON→return
+  load ps; ps.map[planId]=path; ps.v++; ps.evt=g
+  OPT(ps)                         // step-B
+    if st==BLK_CON→LOG("Plan summary conflict",E); st=BLK_PSUM; return
+  LOG("Plan "+planId+" ("+dom+")",I); cp=planId; SET(C)
+
+C (CONSTRUCT – execute next task)
+  if !cp → LOG("No plan",W); SET(I); return
+  path = ps.map.get(cp) || (LOG("Plan path miss",E); st=BLK_PSUM; return)
+  load plan
+    fail→LOG("Load plan "+cp,E); st=BLK_PSUM; return
+  next = first task st==PEND
+  if !next → DONE
+  ct = next.id; BUSY; SAVE; LOG("Exec "+ct,I)
+  out = AI do task
+  if out.id → REG(out)
+  LOG("Exec "+ct+" fin",I); st=READY; SET(V)
+
+REG(out)  // artifact registration
+  art={v:1,id:out.id,dom:out.dom,pu:out.pu||"",t:out.type,loc:out.loc,
+       if:out.if||[],dep:out.dep||[],pre:[],depd:[],kdd:"",evt:g,
+       st:"UnderConstruction",ki:[]}
+  aPath="registry/"+out.dom+"/"+out.id+".json"
+  OPT(art file)                   // step-A
+    if st==BLK_CON→return
+  load rs; rs.map[out.id]=aPath; rs.v++; rs.evt=g
+  OPT(rs)                         // step-B
+    if st==BLK_CON→LOG("Registry summary conflict",E); st=BLK_SUM
+
+V (VALIDATE – review task)
+  if !cp||!ct → LOG("Review ctx miss",W); SET(C); return
+  path = ps.map.get(cp) || (LOG("Plan path miss",E); st=BLK_PSUM; return)
+  load plan
+  idx = index where tasks[idx].id==ct
+  BUSY; SAVE; LOG("Review "+ct,I)
+  pass = AI review against tasks[idx].crit & ANNO_VAL
+  if pass
+      tasks[idx].st="DONE"; tasks[idx].rt=rt.get(ct,0)
+      plan.evt=g; plan.v++; OPT(plan); LOG("PASS "+ct,I); ct=null; SET(C)
+  else
+      rt[ct]=rt.get(ct,0)+1; tasks[idx].rt=rt[ct]
+      plan.evt=g; plan.v++; OPT(plan)
+      LOG("FAIL "+ct,W); rt[ct]<MAX ? SET(C) : (st=BLK_MAX; LOG("Retry max "+ct,E))
+
+DONE
+  LOG("Plan "+cp+" COMPLETE",I); cp=null; ct=null; SET(I)
+
+BLOCK codes
+  BLK_CON  optimistic-lock conflict (any file)
+  BLK_SUM  registry_summary update failed
+  BLK_PSUM plan_summary update/load failed
+  BLK_MAX  task retry limit
+
+ISSUE FLOW
+  RECORD(id,payload)   ki.issues[id]=payload; ki.v++; OPT(ki)
+                       iss[id]=payload; link(payload.art,ADD,id)
+  RESOLVE(id)          ki.issues[id].st="RES"; ki.issues[id].res=g; ki.v++; OPT(ki)
+                       del iss[id]; link(ki.issues[id].art,REM,id)
+  link(artId,ADD|REM,id)
+      aPath = rs.map[artId]; load art; ADD? push id : remove id
+      art.ki sort; art.evt=g; art.v++; OPT(art)
+
+LOAD_ISS   read ki; iss ← ACTIVE; LOG("Issues "+len(iss),I)
+
+CONSISTENCY_CHECK (scan rs & ps)
+  verify files ↔ summaries; rebuild orphans; LOG result
+
+ANNO_GEN   during C: embed annotations in created/modified code/config
+ANNO_VAL   during V: ensure annotations present & correct
+
