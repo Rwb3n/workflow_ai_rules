@@ -1,0 +1,124 @@
+OBJ  Hybrid_AI_OS v2.1 — mandatory blueprint phase, single state file, sharded registry (opt-lock), known issues ledger
+
+F
+
+  s   state.json                      // single operational state
+  r   registry/                       // artifact shards (opt-lock)
+  rs  registry_summary.json          // id → path map (opt-lock)
+  cp  plans/plan_<id>.json           // blueprint plan (mandatory)
+  ki  known_issues.json              // issues ledger
+
+
+S  (state file schema)
+
+  v       int                        // version
+  g       int                        // global monotonic counter
+  ph      A|B|C|V|I                  // phase
+  st      READY|BUSY|BLOCK_*|ERROR  // system status
+  cp      str|null                   // current plan id
+  ct      str|null                   // current task id
+  rt      obj   {taskId: retryCount}
+  iss     obj   {issueId: Issue}
+  err     str|null                   // last error message
+
+
+ART  (r/<dom>/<id>.json)
+
+  v    int
+  id   str
+  d    str         // domain
+  pu   str         // purpose
+  t    str         // type
+  loc  str         // path to artifact file
+  if   [str]       // interfaces
+  dep  [id]        // dependencies
+  pre  [id]        // prerequisites
+  depd [id]        // dependents
+  kdd  str         // key design decisions
+  evt  int         // last modified g
+  st   str         // status
+  ki   [id]        // known issue ids
+
+  *loc file must embed annotations ⇒ purpose, logic, dep refs, issue links (opt: dependents)
+
+
+ISS  (ki.issues[id])
+
+  k     LINT|RUN|OTH
+  rule  str
+  art   id
+  loc   str
+  why   str
+  intro int
+  st    ACT|RES
+  res   int|null
+
+
+PH  A ANALYZE B BLUEPRINT C CONSTRUCT V VALIDATE I IDLE
+
+
+R
+
+  INIT        ensure dirs r/, cp/, ki/; create s, rs, ki if absent
+              SET I; LOG "System initialized"; SAVE
+
+  RESUME      load s; LOAD_ISS; LOG "Session resumed"
+
+  LOAD_ISS    read ki; iss ← ACTIVE; LOG "Loaded "+count+" issues"
+
+  CMD         ph=…; LOG "Phase→"+ph; SAVE
+
+  BLOCK       st=BLOCK_*; LOG; SAVE
+
+  ERROR       st=ERROR; err=msg; LOG msg; SAVE
+
+  RETRY       rt[task]++; rt<MAX_RETRY ? CMD C : BLOCK BLOCK_MAX
+
+  PERS        opt-lock write any versioned JSON (s, rs, cp, ART, ISS)
+
+  REG         build ART from output; PERS(ART); update rs; PERS(rs)
+
+  CONS        validate rs vs r/, ensure ki links; rs.v++; PERS(rs)
+
+  ORPH        scan r/ for files not listed in rs
+
+  ANNO_GEN    during C: embed annotations into loc file
+
+  ANNO_VAL    during V: assert annotations present and adequate
+
+  LINT        new issue → RECORD
+
+  VAL         run tests; pass ⇒ plan.tasks[i].st = DONE;
+              fail ⇒ RETRY or BLOCK BLOCK_VALID
+
+  DONE        LOG "Plan complete"; REG result pkg; SET AWAIT_IMPL
+
+
+I
+
+  RECORD      ki.issues[id]=...; PERS(ki); REG add ki link
+
+  RESOLVE     ki.issues[id].st=RES; ki.issues[id].res=g; PERS(ki); REG remove link
+
+
+D
+
+  • Mandatory blueprints — after every successful ANALYZE, must run BLUEPRINT, create cp, then C
+
+  • CONSTRUCT forbidden unless cp is set
+
+  • All PERS writes via optimistic locking (version + conflict resolution)
+
+  • Annotate all outputs from C; validate annotations in V
+
+  • Retry loop for task ct governed by rt[ct], up to MAX_RETRY
+
+  • BLOCK or ERROR states must persist immediately
+
+  • JSON files must be comment-free, minimal, and auditable
+
+  • All phase transitions and errors must be logged in-memory (not persisted)
+
+  • Domain layers must comply with all above (incl. REG, ANNO, PERS, ISSUE)
+
+  • State must be minimal, precise, and consistently persisted
