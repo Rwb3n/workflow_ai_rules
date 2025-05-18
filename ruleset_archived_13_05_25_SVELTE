@@ -227,7 +227,7 @@ III. PHASE INTENTS & CORE AI ACTIONS
 2. BLUEPRINT Phase Intent:
 * Goal: Create a new, detailed, verbose, comprehensive, decomposed project plan.
 * Core AI Action: AI_Create_Plan(plan_id_suggestion, goal_from_analysis, current_g).
-*   **Expected Outcome:** New `plan_<id>.txt` created (with an initial top-level `status`, e.g., `PENDING` or `AWAITING_IMPLEMENTATION`). Updated `state.txt` (`cp_id`, transition to CONSTRUCT). Report plan creation.
+* Expected Outcome: New `plan_<id>.txt` created (with an initial top-level `status`, e.g., `PENDING` or `AWAITING_IMPLEMENTATION`). Updated `state.txt` (`cp_id`, transition to CONSTRUCT). Report plan creation.
 3. CONSTRUCT Phase Intent:
 * Goal: Execute tasks/sub-tasks from the active plan (state.cp_id).
 * Core AI Action: AI_Execute_Task_From_Plan(). This function internally finds the next viable task/sub-task, performs work, creates/modifies artifacts (embedding full annotations as specified in II.B.6 according to file content structure, including bidirectional links and lint status), updates registry_map.txt, handles errors by creating/linking issues, manages retries, and updates task/plan status.
